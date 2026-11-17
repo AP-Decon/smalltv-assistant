@@ -690,8 +690,7 @@ void handleNotify() {
 }
 
 void setupServer() {
-  static const char* hdrs[] = {"Title", "X-Title", "Tags", "X-Tags"};
-  server.collectHeaders(hdrs, 4);
+  server.collectHeaders("Title", "X-Title", "Tags", "X-Tags");
 
   server.on("/", HTTP_GET, [] { server.send_P(200, "text/html", INDEX_HTML); });
   server.on("/api/state", HTTP_GET, sendState);
