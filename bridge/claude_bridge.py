@@ -9,8 +9,9 @@ Listens on two ntfy topics and talks to your cube through a third:
 
 The cube itself subscribes to <topic>.
 
-Only uses the Python standard library. Needs an Anthropic API key in the
-ANTHROPIC_API_KEY environment variable.
+Only uses the Python standard library. Needs one AI key:
+    GROQ_API_KEY       free tier, https://console.groq.com/keys   (default if set)
+    ANTHROPIC_API_KEY  paid,      https://console.anthropic.com/
 
 Examples
     python claude_bridge.py --topic alan-cube-7f3k9q2x
@@ -30,6 +31,9 @@ import urllib.request
 
 MOODS = ["neutral", "happy", "sad", "surprised", "thinking", "sleepy", "love", "angry"]
 API_URL = "https://api.anthropic.com/v1/messages"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+DEFAULT_MODELS = {"claude": "claude-haiku-5-5", "groq": "openai/gpt-oss-20b"}
+USER_AGENT = "smalltv-assistant-bridge/1.1"
 
 PERSONA = (
     "You are Bit, a tiny, friendly assistant who lives on a 240x240 pixel screen "
@@ -83,7 +87,13 @@ class Bridge:
     def __init__(self, args):
         self.a = args
         self.server = args.server.rstrip("/")
-        self.key = os.environ.get("ANTHROPIC_API_KEY", "")
+        # Which AI service to use. "auto" picks Groq if a Groq key is set.
+        prov = args.provider
+        if prov == "auto":
+            prov = "groq" if os.environ.get("GROQ_API_KEY") else "claude"
+        self.provider = prov
+        self.key = os.environ.get("GROQ_API_KEY" if prov == "groq" else "ANTHROPIC_API_KEY", "")
+        self.model = args.model or os.environ.get("AI_MODEL") or DEFAULT_MODELS[prov]
         self.recent = {}  # (title, msg) -> time, for de-duplication
         self.last_id = None
 
@@ -110,12 +120,37 @@ class Bridge:
         except Exception as e:  # noqa: BLE001
             log("!! could not send to cube:", e)
 
-    # ---- Claude -------------------------------------------------------
+    # ---- AI (Claude or Groq) ------------------------------------------
     def claude(self, system, user, max_tokens=300):
+        """Ask the configured AI service; returns the parsed JSON reply."""
         if not self.key:
-            raise RuntimeError("ANTHROPIC_API_KEY is not set")
+            raise RuntimeError("%s is not set" % ("GROQ_API_KEY" if self.provider == "groq" else "ANTHROPIC_API_KEY"))
+        if self.provider == "groq":
+            body = {
+                "model": self.model,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                # gpt-oss models think before answering; that counts toward this limit
+                "max_completion_tokens": 1500,
+                "response_format": {"type": "json_object"},
+            }
+            if "gpt-oss" in self.model:
+                body["reasoning_effort"] = "low"
+            req = urllib.request.Request(
+                GROQ_URL,
+                data=json.dumps(body).encode(),
+                headers={
+                    "Authorization": "Bearer " + self.key,
+                    "Content-Type": "application/json",
+                    "User-Agent": USER_AGENT,
+                },
+            )
+            with urllib.request.urlopen(req, timeout=60) as r:
+                resp = json.load(r)
+            text = resp["choices"][0]["message"].get("content") or ""
+            return parse_json_reply(text)
+
         body = {
-            "model": self.a.model,
+            "model": self.model,
             "max_tokens": max_tokens,
             "system": system,
             "messages": [{"role": "user", "content": user}],
@@ -127,6 +162,7 @@ class Bridge:
                 "x-api-key": self.key,
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
+                "User-Agent": USER_AGENT,
             },
         )
         with urllib.request.urlopen(req, timeout=60) as r:
@@ -155,7 +191,7 @@ class Bridge:
                 return
             self.send(out.get("title", title), out.get("message", message), out.get("mood", "neutral"))
         except Exception as e:  # noqa: BLE001
-            log("!! Claude failed (%s), forwarding the original" % e)
+            log("!! AI failed (%s), forwarding the original" % e)
             self.send(title, message)
 
     def on_question(self, question):
@@ -164,8 +200,8 @@ class Bridge:
             out = self.claude(ASK_PROMPT, question)
             self.send(out.get("title", "Answer"), out.get("message", ""), out.get("mood", "happy"))
         except Exception as e:  # noqa: BLE001
-            log("!! Claude failed:", e)
-            self.send("Oops", "I couldn't reach Claude just now.", "sad")
+            log("!! AI failed:", e)
+            self.send("Oops", "I couldn't reach the AI just now.", "sad")
 
     # ---- ntfy subscription --------------------------------------------
     def listen(self):
@@ -214,7 +250,9 @@ def main(argv=None):
     p.add_argument("--server", default="https://ntfy.sh", help="ntfy server (default https://ntfy.sh)")
     p.add_argument("--token", default=os.environ.get("NTFY_TOKEN", ""), help="ntfy access token, if your server needs one")
     p.add_argument("--device", default="", help="send straight to the cube instead, e.g. http://smalltv-assistant.local")
-    p.add_argument("--model", default=os.environ.get("CLAUDE_MODEL", "claude-haiku-5-5"))
+    p.add_argument("--provider", default=os.environ.get("AI_PROVIDER", "auto"), choices=["auto", "groq", "claude"],
+                   help="AI service: groq (free tier) or claude. auto = groq if GROQ_API_KEY is set")
+    p.add_argument("--model", default="", help="override the model (default: openai/gpt-oss-20b on Groq, claude-haiku-5-5 on Claude)")
     p.add_argument("--filter", action="store_true", help="let Claude drop spam and promo notifications")
     sub = p.add_subparsers(dest="cmd")
     a = sub.add_parser("ask", help="ask one question and show the answer on the cube")
@@ -232,7 +270,8 @@ def main(argv=None):
         b.send(args.title, args.message, args.mood)
     else:
         if not b.key:
-            sys.exit("Set ANTHROPIC_API_KEY first (https://console.anthropic.com/).")
+            sys.exit("Set GROQ_API_KEY (free: https://console.groq.com/keys) or ANTHROPIC_API_KEY first.")
+        log("using %s, model %s" % (b.provider, b.model))
         try:
             b.listen()
         except KeyboardInterrupt:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the Claude bridge as a background service on a Raspberry Pi
+# Installs the AI bridge (Groq or Claude) as a background service on a Raspberry Pi
 # (tested target: Pi Zero W with Raspberry Pi OS; runs fine alongside Pi-hole).
 #
 #   bash install_pi.sh
@@ -15,7 +15,14 @@ command -v python3 >/dev/null || { echo "python3 is missing: sudo apt install -y
 
 read -rp "ntfy topic your cube uses (e.g. alan-cube-7f3k9q2x): " TOPIC
 [ -n "$TOPIC" ] || { echo "A topic is required."; exit 1; }
-read -rsp "Anthropic API key (sk-ant-...): " KEY; echo
+read -rp "AI service - [g]roq (free) or [c]laude (paid)? [g]: " PROV
+if [[ "${PROV,,}" == c* ]]; then
+  KEYVAR=ANTHROPIC_API_KEY
+  read -rsp "Anthropic API key (sk-ant-...): " KEY; echo
+else
+  KEYVAR=GROQ_API_KEY
+  read -rsp "Groq API key (gsk_..., from console.groq.com/keys): " KEY; echo
+fi
 [ -n "$KEY" ] || { echo "An API key is required."; exit 1; }
 read -rp "Let Claude filter out spam/promo notifications? [y/N]: " FILTER
 EXTRA=""
@@ -25,7 +32,7 @@ sudo mkdir -p "$DEST"
 sudo cp "$HERE/claude_bridge.py" "$DEST/"
 
 sudo tee "$ENVFILE" >/dev/null <<EOF
-ANTHROPIC_API_KEY=$KEY
+$KEYVAR=$KEY
 BRIDGE_TOPIC=$TOPIC
 BRIDGE_ARGS=$EXTRA
 EOF
@@ -33,7 +40,7 @@ sudo chmod 600 "$ENVFILE"
 
 sudo tee /etc/systemd/system/smalltv-bridge.service >/dev/null <<'EOF'
 [Unit]
-Description=SmallTV Assistant - Claude bridge
+Description=SmallTV Assistant - AI bridge
 After=network-online.target
 Wants=network-online.target
 
