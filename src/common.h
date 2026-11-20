@@ -46,7 +46,8 @@ inline int moodFromString(String s) {
 // ---- 4-bit sprite palette (shared by face + mascot) --------------------
 enum PalIdx : uint8_t {
   PAL_BG = 0, PAL_EYE = 1, PAL_PINK = 2, PAL_RED = 3, PAL_OUTLINE = 4,
-  PAL_BODY = 5, PAL_SCREEN = 6, PAL_YELLOW = 7, PAL_WHITE = 8, PAL_DIM = 9
+  PAL_BODY = 5, PAL_SCREEN = 6, PAL_YELLOW = 7, PAL_WHITE = 8, PAL_DIM = 9,
+  PAL_ORANGE = 10, PAL_GREEN = 11, PAL_BLUE = 12, PAL_PURPLE = 13, PAL_LIGHTBLUE = 14
 };
 
 // ---- Notification -----------------------------------------------------
@@ -55,7 +56,24 @@ struct Note {
   String body;
   uint8_t mood = MOOD_NEUTRAL;
   time_t at = 0;
+  uint8_t sticker = 0xFF;   // STK_NONE
+  bool family = false;      // came from the family chat topic
+  uint16_t accent = 0;      // sender colour for family messages
 };
+
+// Sender colours for the family chat. chat.html uses the same list and hash.
+static const uint16_t SENDER_COLORS[8] = {
+  0xF8B2, 0x07FF, 0xFFE0, 0x07E0, 0xFD20, 0xA01F, 0x3D7F, 0xF800
+};
+inline uint16_t senderColor(const String& name) {
+  uint16_t h = 0;
+  for (size_t i = 0; i < name.length(); i++) {
+    char c = name[i];
+    if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
+    h = (uint16_t)(h * 31 + (uint8_t)c);
+  }
+  return SENDER_COLORS[h % 8];
+}
 
 // ---- Settings ---------------------------------------------------------
 struct Config {
@@ -74,6 +92,8 @@ struct Config {
   bool bgr = true;      // panel colour order (flip if red/blue are swapped)
   bool invert = true;   // panel inversion (flip if colours look like a negative)
   String eyeHex = "#00ffff";
+  String name = "Cube";          // shown as the sender of family messages
+  String familyTopic = "";       // shared family chat topic (optional)
 };
 
 inline uint16_t hexTo565(const String& hex) {

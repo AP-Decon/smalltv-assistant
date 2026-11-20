@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Family Chat">
+<title>Family Chat</title>
+<style>
+:root{--bg:#0f1115;--card:#1a1d24;--fg:#e8eaf0;--mut:#8b91a0;--acc:#2ad4d4}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:16px/1.4 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg);display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:10px;padding:12px 14px;padding-top:max(12px,env(safe-area-inset-top));background:var(--card)}
+header h1{font-size:18px;margin:0;flex:1}
+.dot{width:10px;height:10px;border-radius:50%;background:#c33}
+.dot.on{background:#3c6}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--acc);color:#001;font-weight:600;cursor:pointer}
+button.sec{background:#2a2f3a;color:var(--fg)}
+button.icon{background:none;color:var(--fg);font-size:20px;padding:4px 8px}
+#log{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+.msg{max-width:80%;background:var(--card);border-radius:14px;padding:8px 12px;align-self:flex-start;word-wrap:break-word}
+.msg.me{align-self:flex-end;background:#1f3540}
+.msg .who{font-size:13px;font-weight:700}
+.msg .t{font-size:11px;color:var(--mut);margin-left:6px;font-weight:400}
+.msg.big .body{font-size:52px;line-height:1.1}
+.empty{color:var(--mut);text-align:center;margin-top:40px}
+#stickers{display:flex;gap:4px;overflow-x:auto;padding:8px 10px 0;background:var(--card)}
+#stickers button{background:#2a2f3a;font-size:26px;padding:4px 8px;flex:0 0 auto}
+form{display:flex;gap:8px;padding:8px 10px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:var(--card)}
+input{flex:1;min-width:0;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid #333a46;background:#11141a;color:var(--fg)}
+#setup{position:fixed;inset:0;background:var(--bg);padding:24px;overflow:auto;display:none}
+#setup h2{margin-top:0}
+#setup label{display:block;margin:14px 0 4px;color:var(--mut);font-size:14px}
+#setup input{width:100%}
+#setup small{color:var(--mut)}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#2a2f3a;padding:8px 14px;border-radius:10px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot" title="connection"></span>
+  <h1>Family Chat</h1>
+  <button class="icon" id="share" title="Invite someone">&#128279;</button>
+  <button class="icon" id="gear" title="Settings">&#9881;&#65039;</button>
+</header>
+<div id="log"><div class="empty">Loading messages...</div></div>
+<div id="stickers"></div>
+<form id="f"><input id="text" maxlength="300" placeholder="Message" autocomplete="off"><button>Send</button></form>
+
+<div id="setup">
+  <h2>Family Chat</h2>
+  <p>Messages you send here appear on everyone's phones and on the family cubes.</p>
+  <label>Your name</label><input id="s_name" maxlength="20" placeholder="e.g. Dad, Ella">
+  <label>Family code</label><input id="s_topic" placeholder="from your invite link" autocapitalize="off" autocorrect="off">
+  <small>The same code goes on every phone and cube. Treat it like a password.</small>
+  <p><button class="sec" type="button" id="s_new">Make a new family code</button></p>
+  <details><summary><small>Advanced</small></summary>
+    <label>ntfy server</label><input id="s_server" placeholder="https://ntfy.sh">
+  </details>
+  <p><button type="button" id="s_save">Start chatting</button></p>
+</div>
+<div id="toast"></div>
+
+<script>
+const STICKERS = [["heart","❤️"],["smile","\u{1F60A}"],["laugh","\u{1F602}"],["cry","\u{1F622}"],
+  ["thumbsup","\u{1F44D}"],["wave","\u{1F44B}"],["star","⭐"],["party","\u{1F389}"],
+  ["fire","\u{1F525}"],["sleep","\u{1F634}"],["hug","\u{1F917}"]];
+// Same colours and hash as the cube firmware (common.h senderColor)
+const COLORS = ["#ff1494","#00ffff","#ffff00","#00ff00","#ffa400","#a000ff","#3aafff","#ff0000"];
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try { return localStorage.getItem("fc." + k) || ""; } catch(e){ return mem[k] || ""; } },
+  set(k,v){ try { localStorage.setItem("fc." + k, v); } catch(e){ mem[k] = v; } }
+};
+const mem = {};
+
+function fold(s){ return (s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^\x20-\x7e]/g,"").replace(/ +/g," ").trim(); }
+function colorFor(name){
+  let h = 0;
+  for (const ch of fold(name).toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) & 0xFFFF;
+  return COLORS[h % 8];
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function toast(t){ const e=$("toast"); e.textContent=t; e.style.display="block"; clearTimeout(e._t); e._t=setTimeout(()=>e.style.display="none",2000); }
+function onlyEmoji(s){ return s.length <= 16 && /^[\p{Extended_Pictographic}‍️\s]+$/u.test(s); }
+
+let cfg = { name: store.get("name"), topic: store.get("topic"), server: store.get("server") || "https://ntfy.sh" };
+const fromHash = decodeURIComponent(location.hash.slice(1)).trim();
+if (fromHash) { cfg.topic = fromHash; store.set("topic", fromHash); history.replaceState(null, "", location.pathname); }
+
+const msgs = new Map();
+let es = null;
+
+function render(){
+  const log = $("log");
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  const list = [...msgs.values()].sort((a,b) => a.time - b.time);
+  if (!list.length) { log.innerHTML = '<div class="empty">No messages in the last 12 hours.<br>Say hello! \u{1F44B}</div>'; return; }
+  log.innerHTML = list.map(m => {
+    const who = m.title || "Someone";
+    const me = fold(who).toLowerCase() === fold(cfg.name).toLowerCase();
+    const t = new Date(m.time * 1000).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+    const big = onlyEmoji(m.message || "");
+    return `<div class="msg${me?" me":""}${big?" big":""}"><div class="who" style="color:${colorFor(who)}">${esc(who)}<span class="t">${t}</span></div><div class="body">${esc(m.message||"")}</div></div>`;
+  }).join("");
+  if (atBottom || list.length < 3) log.scrollTop = log.scrollHeight;
+}
+
+function connect(){
+  if (es) es.close();
+  msgs.clear();
+  const url = `${cfg.server.replace(/\/$/,"")}/${encodeURIComponent(cfg.topic)}/sse?since=12h`;
+  es = new EventSource(url);
+  es.onopen = () => $("dot").classList.add("on");
+  es.onerror = () => $("dot").classList.remove("on");
+  es.onmessage = e => {
+    try {
+      const m = JSON.parse(e.data);
+      if (m.event === "message" && !msgs.has(m.id)) { msgs.set(m.id, m); render(); }
+    } catch(_) {}
+  };
+  setTimeout(() => { if (!msgs.size) render(); }, 2500);
+}
+
+async function send(message, sticker){
+  message = (message || "").trim();
+  if (!message) return;
+  const body = { topic: cfg.topic, title: cfg.name, message };
+  if (sticker) body.tags = ["sticker-" + sticker];
+  try {
+    // posted as plain text (JSON inside) so the browser needs no extra permission check
+    const r = await fetch(cfg.server.replace(/\/$/,"") + "/", { method: "POST", body: JSON.stringify(body) });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+  } catch(e) { toast("Couldn't send - check your connection"); }
+}
+
+$("f").onsubmit = e => { e.preventDefault(); const t = $("text").value; $("text").value = ""; send(t); };
+STICKERS.forEach(([name, emoji]) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.textContent = emoji; b.title = name;
+  b.onclick = () => send(emoji, name);
+  $("stickers").appendChild(b);
+});
+
+function newCode(){
+  const a = "abcdefghjkmnpqrstuvwxyz23456789"; let c = "fam-";
+  crypto.getRandomValues(new Uint8Array(20)).forEach(x => c += a[x % a.length]);
+  return c;
+}
+function openSetup(){
+  $("s_name").value = cfg.name; $("s_topic").value = cfg.topic; $("s_server").value = cfg.server;
+  $("setup").style.display = "block";
+}
+$("s_new").onclick = () => { if (!$("s_topic").value || confirm("Make a brand new family? Others will need your new invite link.")) $("s_topic").value = newCode(); };
+$("s_save").onclick = () => {
+  const name = $("s_name").value.trim(), topic = $("s_topic").value.trim().replace(/^.*#/, "");
+  if (!name || !topic) { toast("Please fill in your name and the family code"); return; }
+  if (topic.length < 12) { toast("Family code is too short to be safe - use 'Make a new family code'"); return; }
+  cfg = { name, topic, server: $("s_server").value.trim() || "https://ntfy.sh" };
+  store.set("name", name); store.set("topic", topic); store.set("server", cfg.server);
+  $("setup").style.display = "none";
+  connect();
+};
+$("gear").onclick = openSetup;
+$("share").onclick = async () => {
+  const link = location.origin + location.pathname + "#" + encodeURIComponent(cfg.topic);
+  try {
+    if (navigator.share) await navigator.share({ title: "Family Chat", text: "Join our family chat", url: link });
+    else { await navigator.clipboard.writeText(link); toast("Invite link copied"); }
+  } catch(e) { prompt("Copy this invite link:", link); }
+};
+
+if (!cfg.name || !cfg.topic) openSetup(); else connect();
+</script>
+</body>
+</html>

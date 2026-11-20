@@ -23,6 +23,7 @@
 #include "textutil.h"
 #include "face.h"
 #include "mascot.h"
+#include "stickers.h"
 #include "webpage.h"
 
 #ifndef PIN_BACKLIGHT
@@ -96,6 +97,8 @@ void loadConfig() {
   cfg.bgr = d["bgr"] | cfg.bgr;
   cfg.invert = d["invert"] | cfg.invert;
   cfg.eyeHex = d["eyeHex"] | cfg.eyeHex.c_str();
+  cfg.name = d["name"] | cfg.name.c_str();
+  cfg.familyTopic = d["familyTopic"] | cfg.familyTopic.c_str();
 }
 
 void saveConfig() {
@@ -116,6 +119,8 @@ void saveConfig() {
   d["bgr"] = cfg.bgr;
   d["invert"] = cfg.invert;
   d["eyeHex"] = cfg.eyeHex;
+  d["name"] = cfg.name;
+  d["familyTopic"] = cfg.familyTopic;
   File f = LittleFS.open(CONFIG_PATH, "w");
   if (!f) return;
   serializeJson(d, f);
@@ -137,6 +142,11 @@ void setupPalette() {
   palette[PAL_YELLOW] = 0xFFE0;
   palette[PAL_WHITE] = 0xFFFF;
   palette[PAL_DIM] = 0x4A69;
+  palette[PAL_ORANGE] = 0xFD20;
+  palette[PAL_GREEN] = 0x07E0;
+  palette[PAL_BLUE] = 0x2B9F;
+  palette[PAL_PURPLE] = 0xA01F;
+  palette[PAL_LIGHTBLUE] = 0x5D9F;
   if (sprOk) spr.createPalette(palette, 16);
 }
 
@@ -153,6 +163,8 @@ void setBacklight(uint8_t pct) {
   // backlight is active-low
   analogWrite(PIN_BACKLIGHT, 255 - (pct * 255 / 100));
 }
+
+uint16_t noteAccent(const Note& n) { return n.family ? n.accent : MOOD_COLORS[n.mood]; }
 
 bool timeValid() { return time(nullptr) > 1700000000; }
 
@@ -249,7 +261,7 @@ void drawIdleInfo(bool force) {
 
 // Speech bubble under the face / mascot (message)
 void drawBubble(const Note& n) {
-  uint16_t accent = MOOD_COLORS[n.mood];
+  uint16_t accent = noteAccent(n);
   const int bx = 6, by = 112, bw = 228, bh = 122;
   tft.fillRect(0, SPRITE_H, 240, 240 - SPRITE_H, TFT_BLACK);
   tft.fillRoundRect(bx, by, bw, bh, 12, BUBBLE_BG);
@@ -321,7 +333,7 @@ void drawCardsIdle(bool force) {
   } else {
     const Note& n = history.back();
     useFont(2);
-    tft.setTextColor(MOOD_COLORS[n.mood]);
+    tft.setTextColor(noteAccent(n));
     tft.drawString("Last " + hhmm(n.at), px + 10, py + 6);
     useFont(&FreeSansBold9pt7b);
     tft.setTextColor(TFT_WHITE);
@@ -335,7 +347,7 @@ void drawCardsIdle(bool force) {
 }
 
 void drawCardsMessage(const Note& n) {
-  uint16_t accent = MOOD_COLORS[n.mood];
+  uint16_t accent = noteAccent(n);
   tft.fillScreen(TFT_BLACK);
   tft.fillRect(0, 0, 240, 46, accent);
   tft.setTextDatum(ML_DATUM);
@@ -401,12 +413,21 @@ void showNext() {
   needRedraw = true;
 }
 
-void addNote(String title, String body, int mood) {
+void addNote(String title, String body, int mood, uint8_t sticker = STK_NONE, bool family = false) {
   title = asciiFold(title);
   body = asciiFold(body);
-  if (!title.length() && !body.length()) return;
+  if (sticker != STK_NONE && sticker >= STK_COUNT) sticker = STK_NONE;
+  if (family) {
+    if (!title.length()) title = "Someone";
+    if (!body.length() && sticker != STK_NONE) body = STICKER_CAPTIONS[sticker];
+    if (mood < 0) mood = sticker != STK_NONE ? (int)STICKER_MOODS[sticker] : (int)MOOD_HAPPY;
+  }
+  if (!title.length() && !body.length() && sticker == STK_NONE) return;
   if (!body.length()) { body = title; title = ""; }
   Note n;
+  n.sticker = sticker;
+  n.family = family;
+  n.accent = senderColor(title);
   n.title = title.substring(0, 80);
   n.body = body.substring(0, 400);
   n.mood = (mood >= 0 && mood < MOOD_COUNT) ? mood : MOOD_NEUTRAL;
@@ -495,7 +516,10 @@ void ntfyConnect() {
     ntfyBackoff = std::min<uint32_t>(ntfyBackoff * 2, 60000);
     return;
   }
-  String path = "/" + cfg.ntfyTopic + "/json";
+  String topics = cfg.ntfyTopic;
+  if (cfg.familyTopic.length() && cfg.familyTopic != cfg.ntfyTopic)
+    topics += (topics.length() ? "," : "") + cfg.familyTopic;
+  String path = "/" + topics + "/json";
   if (ntfyLastId.length()) path += "?since=" + ntfyLastId;
   String req = "GET " + path + " HTTP/1.0\r\nHost: " + host +
                "\r\nUser-Agent: smalltv-assistant/" FW_VERSION "\r\n";
@@ -513,20 +537,26 @@ void handleNtfyLine(const String& line) {
   ntfyLastId = (const char*)(d["id"] | "");
   String title = d["title"] | "";
   String msg = d["message"] | "";
-  if (handleCommand(msg)) return;
+  String topic = d["topic"] | "";
+  bool family = cfg.familyTopic.length() && topic == cfg.familyTopic;
+  if (!family && handleCommand(msg)) return;  // the family can't send control commands
   int mood = -1;
+  uint8_t sticker = STK_NONE;
   JsonArray tags = d["tags"].as<JsonArray>();
   for (JsonVariant t : tags) {
-    int m = moodFromString(t.as<String>());
-    if (m >= 0) { mood = m; break; }
+    String tag = t.as<String>();
+    if (sticker == STK_NONE) sticker = stickerFromName(tag);
+    int m = moodFromString(tag);
+    if (m >= 0 && mood < 0) mood = m;
   }
+  if (sticker == STK_NONE && family) sticker = findSticker(msg);
   int prio = d["priority"] | 3;
   if (mood < 0 && prio >= 5) mood = MOOD_SURPRISED;
-  addNote(title, msg, mood);
+  addNote(title, msg, mood, sticker, family);
 }
 
 void ntfyLoop() {
-  if (!cfg.ntfyTopic.length() || WiFi.status() != WL_CONNECTED) {
+  if ((!cfg.ntfyTopic.length() && !cfg.familyTopic.length()) || WiFi.status() != WL_CONNECTED) {
     if (ntfy.connected()) ntfy.stop();
     ntfyOk = false;
     return;
@@ -581,6 +611,8 @@ void sendState() {
   c["bgr"] = cfg.bgr;
   c["invert"] = cfg.invert;
   c["eyeHex"] = cfg.eyeHex;
+  c["name"] = cfg.name;
+  c["familyTopic"] = cfg.familyTopic;
   d["ip"] = WiFi.localIP().toString();
   d["heap"] = ESP.getFreeHeap();
   d["version"] = FW_VERSION;
@@ -598,6 +630,14 @@ void sendState() {
     o["title"] = history[i].title;
     o["body"] = history[i].body;
     o["mood"] = MOOD_NAMES[history[i].mood];
+    o["family"] = history[i].family;
+    if (history[i].sticker < STK_COUNT) o["sticker"] = STICKER_NAMES[history[i].sticker];
+  }
+  JsonArray st = d["stickers"].to<JsonArray>();
+  for (uint8_t i = 0; i < STK_COUNT; i++) {
+    JsonObject o = st.add<JsonObject>();
+    o["name"] = STICKER_NAMES[i];
+    o["emoji"] = STICKER_EMOJI[i];
   }
   JsonArray moods = d["moods"].to<JsonArray>();
   for (uint8_t i = 0; i < MOOD_COUNT; i++) moods.add(MOOD_NAMES[i]);
@@ -638,6 +678,11 @@ void handleConfig() {
   if (s != cfg.ntfyServer || port != cfg.ntfyPort || topic != cfg.ntfyTopic || token != cfg.ntfyToken) ntfyChanged = true;
   cfg.ntfyServer = s; cfg.ntfyPort = port; cfg.ntfyTopic = topic; cfg.ntfyToken = token;
 
+  String fam = str("familyTopic", cfg.familyTopic);
+  if (fam != cfg.familyTopic) { cfg.familyTopic = fam; ntfyChanged = true; }
+  String nm = str("name", cfg.name);
+  if (nm.length()) cfg.name = nm.substring(0, 20);
+
   String tz = str("tz", cfg.tz);
   if (tz.length() && tz != cfg.tz) { cfg.tz = tz; tzChanged = true; }
 
@@ -665,6 +710,7 @@ void handleNotify() {
   if (!title.length()) title = server.header("X-Title");
   String msg = server.arg("message");
   int mood = server.hasArg("mood") ? moodFromString(server.arg("mood")) : -1;
+  uint8_t sticker = server.hasArg("sticker") ? stickerFromName(server.arg("sticker")) : (uint8_t)STK_NONE;
 
   if (server.hasArg("plain")) {
     String body = server.arg("plain");
@@ -674,6 +720,7 @@ void handleNotify() {
       if (!d["message"].isNull()) msg = d["message"].as<String>();
       else if (!d["body"].isNull()) msg = d["body"].as<String>();
       if (!d["mood"].isNull()) mood = moodFromString(d["mood"].as<String>());
+      if (!d["sticker"].isNull()) sticker = stickerFromName(d["sticker"].as<String>());
     } else if (!msg.length()) {
       msg = body;
     }
@@ -684,9 +731,53 @@ void handleNotify() {
     mood = moodFromTags(tags);
   }
   if (handleCommand(msg)) { sendState(); return; }
-  if (!title.length() && !msg.length()) { server.send(400, "text/plain", "need title or message"); return; }
-  addNote(title, msg, mood);
+  if (sticker == STK_NONE) sticker = findSticker(msg);
+  if (!title.length() && !msg.length() && sticker == STK_NONE) { server.send(400, "text/plain", "need title or message"); return; }
+  addNote(title, msg, mood, sticker, false);
   server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// Send a message to the family chat topic (from this cube's web page)
+bool publishFamily(const String& text, uint8_t sticker) {
+  if (!cfg.familyTopic.length()) return false;
+  JsonDocument d;
+  d["topic"] = cfg.familyTopic;
+  String msg = text;
+  msg.trim();
+  if (sticker < STK_COUNT) {
+    msg = msg.length() ? msg + " " + STICKER_EMOJI[sticker] : String(STICKER_EMOJI[sticker]);
+    JsonArray tags = d["tags"].to<JsonArray>();
+    tags.add(String("sticker-") + STICKER_NAMES[sticker]);
+  }
+  if (!msg.length()) return false;
+  d["message"] = msg;
+  d["title"] = cfg.name;
+  String body;
+  serializeJson(d, body);
+
+  WiFiClient c;
+  String host = ntfyHost();
+  c.setTimeout(3000);
+  if (!c.connect(host.c_str(), cfg.ntfyPort)) return false;
+  String req = "POST / HTTP/1.0\r\nHost: " + host + "\r\nContent-Type: application/json\r\nContent-Length: " +
+               String(body.length()) + "\r\n";
+  if (cfg.ntfyToken.length()) req += "Authorization: Bearer " + cfg.ntfyToken + "\r\n";
+  req += "\r\n";
+  c.print(req);
+  c.print(body);
+  String status = c.readStringUntil('\n');
+  c.stop();
+  return status.indexOf(" 200") > 0;
+}
+
+void handleFamilySend() {
+  JsonDocument d;
+  if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
+  String text = d["message"] | "";
+  uint8_t sticker = d["sticker"].isNull() ? (uint8_t)STK_NONE : stickerFromName(d["sticker"].as<String>());
+  if (!cfg.familyTopic.length()) { server.send(400, "text/plain", "set a family topic first"); return; }
+  if (publishFamily(text, sticker)) server.send(200, "application/json", "{\"ok\":true}");
+  else server.send(502, "text/plain", "could not reach ntfy");
 }
 
 void setupServer() {
@@ -705,6 +796,16 @@ void setupServer() {
     sendState();
   });
   server.on("/api/dismiss", [] { dismiss(); sendState(); });
+  server.on("/api/family", HTTP_POST, handleFamilySend);
+  server.on("/api/forget-wifi", HTTP_POST, [] {
+    server.send(200, "application/json", "{\"ok\":true}");
+    bootScreen("Forgetting Wi-Fi...", "then join SmallTV-Assistant");
+    delay(800);
+    WiFiManager wm;
+    wm.resetSettings();
+    delay(300);
+    ESP.restart();
+  });
   server.on("/api/test", [] {
     screen = SCR_TEST;
     testUntil = millis() + 8000;
@@ -758,7 +859,10 @@ void render() {
   needRedraw = false;
   bool alert = screen == SCR_MSG && (int32_t)(now - alertUntil) < 0;
 
-  if (cfg.style == STYLE_CARDS) {
+  // stickers always use the picture-plus-bubble layout, whatever the style
+  bool stickerMode = screen == SCR_MSG && current.sticker < STK_COUNT;
+
+  if (cfg.style == STYLE_CARDS && !stickerMode) {
     if (screen == SCR_MSG) { if (full) drawCardsMessage(current); }
     else drawCardsIdle(full);
     return;
@@ -776,7 +880,8 @@ void render() {
   lastFrame = now;
   bool small = screen == SCR_MSG;
   uint8_t mood = small ? (alert ? (uint8_t)MOOD_SURPRISED : current.mood) : currentIdleMood(now);
-  if (cfg.style == STYLE_FACE) drawFace(spr, anim, mood, small, now);
+  if (stickerMode) drawSticker(spr, current.sticker, now);
+  else if (cfg.style == STYLE_FACE || cfg.style == STYLE_CARDS) drawFace(spr, anim, mood, small, now);
   else drawMascot(spr, anim, mood, small, alert, now);
   spr.pushSprite(0, small ? 0 : 6);
 }

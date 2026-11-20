@@ -68,25 +68,50 @@ Create a macro:
 
 Only send apps you're comfortable relaying through a public ntfy server. You can self‑host ntfy, and the cube supports an access token.
 
-## 6. The Claude assistant (optional)
+## 6. The AI assistant (optional, free with Groq)
 
 `bridge/claude_bridge.py` runs on anything that's always on: a Raspberry Pi, a home server, or your PC while it's on. It uses only the Python standard library.
 
+It works with either of two AI services:
+- **Groq (free tier, the default):** get a key at <https://console.groq.com/keys>; no card needed. It uses the `openai/gpt-oss-20b` model. If you go over the free limits you get an error, not a bill, and the cube then shows the original notification.
+- **Claude (paid, per use):** set `ANTHROPIC_API_KEY`. Uses `claude-haiku-5-5`.
+
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...        # from console.anthropic.com
+export GROQ_API_KEY=gsk_...                # or ANTHROPIC_API_KEY=sk-ant-...
 python3 bridge/claude_bridge.py --topic alan-cube-7f3k9q2x            # rewrite notifications
 python3 bridge/claude_bridge.py --topic alan-cube-7f3k9q2x --filter   # ...and drop spam/promos
 ```
 
-**Running it on a Raspberry Pi (e.g. a Pi Zero W, even one already running Pi‑hole):** copy the `bridge` folder to the Pi and run `bash bridge/install_pi.sh`. It asks for your topic and API key, then installs a service that starts at boot and restarts itself if it crashes. Watch it with `journalctl -u smalltv-bridge -f`.
+**Running it on a Raspberry Pi (e.g. a Pi Zero W, even one already running Pi‑hole):** copy the `bridge` folder to the Pi and run `bash bridge/install_pi.sh`. It asks for your topic, which AI service to use and its key, then installs a service that starts at boot and restarts itself if it crashes. Watch it with `journalctl -u smalltv-bridge -f`.
 
 - **Ask it things from your phone:** in the ntfy app, subscribe to `<topic>-ask` and type a question. The cube shows a "thinking" face, then the answer.
 - **One‑off from a terminal:** `python3 bridge/claude_bridge.py --topic ... ask "What's 17% of 240?"`
-- **No Claude, just a message:** `python3 bridge/claude_bridge.py --topic ... say "Tea's ready" --mood happy`
-- Uses `claude-haiku-5-5` by default. Change it with `--model` or the `CLAUDE_MODEL` environment variable.
-- Notification text is sent to Anthropic's API for rewriting. If Claude can't be reached, the original notification is forwarded unchanged.
+- **No AI, just a message:** `python3 bridge/claude_bridge.py --topic ... say "Tea's ready" --mood happy`
+- Pick the service with `--provider groq|claude`. If you don't, Groq is used when `GROQ_API_KEY` is set. Change the model with `--model`.
+- Notification text is sent to the AI service for rewriting. If it can't be reached, the original notification is forwarded unchanged.
 
-## 7. Sending messages from anything
+## 7. Family chat
+
+The cubes double as a family message board. Anyone in the family can send a message or an animated sticker from their phone, and it appears on every cube and in everyone's chat, wherever they live.
+
+**Set up the chat page (once):**
+1. In your GitHub repository, go to **Settings → Pages**. Under *Build and deployment*, choose **Deploy from a branch**, then branch **main** and folder **/docs**, and press **Save**. GitHub Pages is free for public repositories. Nothing secret is stored in the repository.
+2. After a minute, the chat lives at `https://<your-github-name>.github.io/smalltv-assistant/chat.html`.
+3. Open it on your phone, enter your name, tap **Make a new family code**, then **Start chatting**.
+4. Tap the 🔗 button to share an invite link with each family member. The link contains the family code, so they only need to type their name. On a phone, use **Add to Home Screen** to make it feel like an app.
+
+**Set up each cube:** on the cube's web page, under **Family chat**, give it a name (e.g. "Ella's cube") and paste the same family code. Press **Save**.
+
+**What shows up:**
+- Each person's name appears in their own colour, and that colour matches on the phones and the cubes.
+- Sending one of these emoji plays an animated sticker on the cubes: ❤️ 😊 😂 😢 👍 👋 ⭐ 🎉 🔥 😴 🤗. Similar emoji count too; 😍 and 💕 both show the heart. Stickers show in every style, including Cards.
+- You can also send from a cube's own web page, using the box and sticker buttons under *Family chat*.
+- The chat shows the last 12 hours of messages. That's how long the free ntfy.sh server keeps them.
+- Family members can't send control commands like `!style` to your cube.
+
+**Privacy:** the family code works like a password. Anyone who has it can read and post. The free ntfy.sh server doesn't list topics, so a long random code (which the **New** buttons make) is hard to guess. Only share it through the invite link. For locked‑down topics, ntfy.sh offers paid reserved topics, or you can run your own ntfy server.
+
+## 8. Sending messages from anything
 
 ```bash
 # via ntfy (from anywhere)
@@ -113,10 +138,11 @@ http://smalltv-assistant.local/notify?title=Door&message=Someone%20is%20at%20the
 
 Other endpoints: `GET /api/state`, `POST /api/config` (JSON), `/api/style?s=next`, `/api/dismiss`, `/api/test`, `/update`.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 - **Blank or garbled screen after flashing:** the display pins or SPI mode don't match your board revision. Upload different firmware through `http://<ip>/update` if the cube is on Wi‑Fi (the IP will be in your router's client list). If it isn't, you'll need to flash over serial: open the case (2 screws underneath), wire a 3.3 V USB‑serial adapter to the pads, and hold GPIO0 to GND while powering on.
 - **Wrong colours:** use the Colour test and the two checkboxes.
+- **Moving to a different Wi‑Fi:** press **Forget Wi‑Fi** on the cube's web page. The cube restarts as `SmallTV-Assistant`; join it and pick the new network. The network must be 2.4 GHz.
 - **"Not connected to ntfy":** check the topic, and that the server is `ntfy.sh` on port 80. The cube uses plain HTTP because the ESP8266 doesn't have the memory for HTTPS. Self‑hosted servers work too.
 - **Clock wrong:** set the time zone. It takes POSIX format; UK is `GMT0BST,M3.5.0/1,M10.5.0`.
 - **Low memory message:** animations are turned off, but the Cards style still works.
@@ -128,7 +154,9 @@ platformio.ini        board + display configuration
 src/main.cpp          Wi-Fi, web server, ntfy, notification queue, screens
 src/face.h            animated robot eyes
 src/mascot.h          pixel-art robot "Bit"
+src/stickers.h        animated family-chat stickers
 src/textutil.h        UTF-8 -> ASCII, word wrap
 src/webpage.h         settings page
-bridge/               Claude bridge script
+bridge/               AI bridge script (Groq or Claude)
+docs/chat.html        family chat page for phones (GitHub Pages)
 ```
