@@ -22,17 +22,19 @@ jobs:
 
       - name: Build
         run: |
-          # works whether the files are at the top level or inside a subfolder
           PROJ=$(dirname "$(find . -name platformio.ini -not -path './.pio/*' | head -n 1)")
-          echo "Building in $PROJ"
           cd "$PROJ"
           pio run -e smalltv
-          cp .pio/build/smalltv/firmware.bin "$GITHUB_WORKSPACE/smalltv-assistant.bin"
+          cp .pio/build/smalltv/firmware.bin "$GITHUB_WORKSPACE/SDPro_Assistant.bin"
+          gzip -9 -c .pio/build/smalltv/firmware.bin > "$GITHUB_WORKSPACE/SDPro_Assistant.bin.gz"
+          ls -l "$GITHUB_WORKSPACE"/SDPro_Assistant.bin*
 
       - uses: actions/upload-artifact@v4
         with:
           name: smalltv-assistant-firmware
-          path: smalltv-assistant.bin
+          path: |
+            SDPro_Assistant.bin
+            SDPro_Assistant.bin.gz
 
       - name: Publish release
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -40,4 +42,6 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: Firmware build ${{ github.run_number }}
-          files: smalltv-assistant.bin
+          files: |
+            SDPro_Assistant.bin
+            SDPro_Assistant.bin.gz
