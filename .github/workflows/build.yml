@@ -22,12 +22,31 @@ jobs:
 
       - name: Build
         run: |
+          # works whether the files are at the top level or inside a subfolder
           PROJ=$(dirname "$(find . -name platformio.ini -not -path './.pio/*' | head -n 1)")
+          echo "Building in $PROJ"
           cd "$PROJ"
           pio run -e smalltv
+          # SDPro clone firmware only accepts files whose name starts with "SDP"
           cp .pio/build/smalltv/firmware.bin "$GITHUB_WORKSPACE/SDPro_Assistant.bin"
+          # compressed copy for updating over Wi-Fi (the cube unpacks it itself)
           gzip -9 -c .pio/build/smalltv/firmware.bin > "$GITHUB_WORKSPACE/SDPro_Assistant.bin.gz"
           ls -l "$GITHUB_WORKSPACE"/SDPro_Assistant.bin*
+
+      # ---- ESP32-C2 ("SDC2") cube, built with ESPHome ----
+      - name: Build ESP32-C2 version
+        continue-on-error: true
+        run: |
+          pip install esphome
+          PROJ=$(dirname "$(find . -name platformio.ini -not -path './.pio/*' | head -n 1)")
+          cd "$PROJ"
+          esphome compile c2/smalltv-c2.yaml
+          OTA=$(find c2/.esphome -name 'firmware.ota.bin' | head -n 1)
+          FACTORY=$(find c2/.esphome -name 'firmware.factory.bin' | head -n 1)
+          [ -z "$OTA" ] && OTA=$(find c2/.esphome -name 'firmware.bin' | head -n 1)
+          cp "$OTA" "$GITHUB_WORKSPACE/SDC2_Assistant.bin"
+          [ -n "$FACTORY" ] && cp "$FACTORY" "$GITHUB_WORKSPACE/SDC2_Assistant_full_usb.bin"
+          ls -l "$GITHUB_WORKSPACE"/SDC2_*
 
       - uses: actions/upload-artifact@v4
         with:
@@ -35,6 +54,8 @@ jobs:
           path: |
             SDPro_Assistant.bin
             SDPro_Assistant.bin.gz
+            SDC2_Assistant.bin
+            SDC2_Assistant_full_usb.bin
 
       - name: Publish release
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -45,3 +66,5 @@ jobs:
           files: |
             SDPro_Assistant.bin
             SDPro_Assistant.bin.gz
+            SDC2_Assistant.bin
+            SDC2_Assistant_full_usb.bin
