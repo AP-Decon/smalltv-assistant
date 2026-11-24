@@ -51,7 +51,7 @@ logger:
 wifi:
   ap:
     ssid: "SmallTV-Assistant"
-  ap_timeout: 60s
+    ap_timeout: 60s
 
 captive_portal:
 
