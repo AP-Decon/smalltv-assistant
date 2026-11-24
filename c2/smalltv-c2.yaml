@@ -1,0 +1,326 @@
+# SmallTV Assistant for the ESP32-C2 ("SDC2") version of the smart weather clock.
+# Hardware details from the Home Assistant community thread
+# "Installing ESPHome on new Smart Weather Clock" (ESP8684 + ST7789V).
+#
+# Build:   esphome compile c2/smalltv-c2.yaml
+# The first install goes through the stock clock's update page as SDC2_Assistant.bin.
+
+esphome:
+  name: smalltv-c2
+  friendly_name: SmallTV Assistant
+  includes:
+    - c2_shim.h
+    - ../src/common.h
+    - ../src/textutil.h
+    - ../src/face.h
+    - ../src/mascot.h
+    - ../src/stickers.h
+    - c2_assistant.h
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          assistant::setup();
+          assistant::fonts.small = id(f_small);
+          assistant::fonts.text = id(f_text);
+          assistant::fonts.bold = id(f_bold);
+          assistant::fonts.title = id(f_title);
+          assistant::fonts.clock = id(f_clock);
+          assistant::cfg.name = id(t_name).state;
+          assistant::cfg.familyTopic = id(t_family).state;
+          assistant::cfg.topic = id(t_topic).state;
+          assistant::cfg.server = id(t_server).state;
+          assistant::cfg.showSecs = (int) id(n_secs).state;
+          auto idx = id(s_style).active_index();
+          assistant::cfg.style = idx.has_value() ? (int) idx.value() : 0;
+
+esp32:
+  board: esp32-c2-devkitm-1
+  variant: esp32c2
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_XTAL_FREQ_26: y
+
+logger:
+  level: INFO
+
+# No network is built in: on first start the cube opens a "SmallTV-Assistant"
+# Wi-Fi network with a setup page where you choose your home Wi-Fi.
+wifi:
+  ap:
+    ssid: "SmallTV-Assistant"
+  ap_timeout: 60s
+
+captive_portal:
+
+web_server:
+  port: 80
+  version: 3
+
+ota:
+  - platform: web_server
+  - platform: esphome
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/London
+
+http_request:
+  verify_ssl: false
+  timeout: 15s
+
+json:
+
+spi:
+  clk_pin: GPIO4
+  mosi_pin: GPIO6
+
+output:
+  - platform: ledc
+    pin: GPIO18
+    id: backlight_out
+    frequency: 1000Hz
+    inverted: true
+
+light:
+  - platform: monochromatic
+    name: "Backlight"
+    id: backlight
+    output: backlight_out
+    restore_mode: ALWAYS_ON
+    default_transition_length: 300ms
+
+font:
+  - file: "gfonts://Roboto"
+    id: f_small
+    size: 14
+  - file: "gfonts://Roboto"
+    id: f_text
+    size: 17
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: bold
+    id: f_bold
+    size: 17
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: bold
+    id: f_title
+    size: 22
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: bold
+    id: f_clock
+    size: 56
+    glyphs: "0123456789:"
+
+display:
+  - platform: mipi_spi
+    id: lcd
+    model: ST7789V
+    dc_pin: GPIO5
+    reset_pin: GPIO1
+    dimensions:
+      width: 240
+      height: 240
+      offset_height: 0
+      offset_width: 0
+    invert_colors: true
+    color_order: BGR
+    spi_mode: mode3
+    data_rate: 40MHz
+    buffer_size: 25%
+    update_interval: 100ms
+    lambda: |-
+      assistant::render(it, id(sntp_time).now());
+
+# ---- settings shown on the cube's web page ---------------------------------
+select:
+  - platform: template
+    name: "Style"
+    id: s_style
+    options: ["Face", "Mascot", "Cards"]
+    initial_option: "Face"
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: 'assistant::cfg.style = (int) i;'
+
+text:
+  - platform: template
+    name: "Cube name"
+    id: t_name
+    mode: text
+    max_length: 20
+    optimistic: true
+    restore_value: true
+    initial_value: "Cube"
+    on_value:
+      - lambda: 'assistant::cfg.name = x;'
+  - platform: template
+    name: "Family code"
+    id: t_family
+    mode: text
+    max_length: 64
+    optimistic: true
+    restore_value: true
+    initial_value: ""
+    on_value:
+      - lambda: 'assistant::cfg.familyTopic = x; assistant::lastId.clear();'
+  - platform: template
+    name: "My notification topic"
+    id: t_topic
+    mode: text
+    max_length: 64
+    optimistic: true
+    restore_value: true
+    initial_value: ""
+    on_value:
+      - lambda: 'assistant::cfg.topic = x; assistant::lastId.clear();'
+  - platform: template
+    name: "ntfy server"
+    id: t_server
+    mode: text
+    max_length: 64
+    optimistic: true
+    restore_value: true
+    initial_value: "https://ntfy.sh"
+    entity_category: config
+    on_value:
+      - lambda: 'assistant::cfg.server = x; assistant::lastId.clear();'
+  - platform: template
+    name: "Send to family"
+    id: t_send
+    mode: text
+    max_length: 200
+    optimistic: true
+    initial_value: ""
+    on_value:
+      - lambda: |-
+          if (!x.empty()) {
+            id(send_family).execute(x, -1);
+            auto call = id(t_send).make_call();
+            call.set_value("");
+            call.perform();
+          }
+
+number:
+  - platform: template
+    name: "Seconds per message"
+    id: n_secs
+    min_value: 3
+    max_value: 600
+    step: 1
+    initial_value: 20
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    on_value:
+      - lambda: 'assistant::cfg.showSecs = (int) x;'
+
+button:
+  - platform: template
+    name: "Send heart ❤️"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 0}}]
+  - platform: template
+    name: "Send smile \U0001F60A"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 1}}]
+  - platform: template
+    name: "Send laugh \U0001F602"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 2}}]
+  - platform: template
+    name: "Send sad \U0001F622"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 3}}]
+  - platform: template
+    name: "Send thumbs up \U0001F44D"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 4}}]
+  - platform: template
+    name: "Send wave \U0001F44B"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 5}}]
+  - platform: template
+    name: "Send star ⭐"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 6}}]
+  - platform: template
+    name: "Send party \U0001F389"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 7}}]
+  - platform: template
+    name: "Send fire \U0001F525"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 8}}]
+  - platform: template
+    name: "Send goodnight \U0001F634"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 9}}]
+  - platform: template
+    name: "Send hug \U0001F917"
+    on_press: [{script.execute: {id: send_family, msg: "", sticker: 10}}]
+  - platform: template
+    name: "Test message"
+    entity_category: diagnostic
+    on_press:
+      - lambda: 'assistant::testMessage();'
+  - platform: template
+    name: "Dismiss"
+    on_press:
+      - lambda: 'assistant::dismiss();'
+  - platform: restart
+    name: "Restart"
+    entity_category: diagnostic
+
+# ---- talking to ntfy ---------------------------------------------------------
+script:
+  - id: poll_ntfy
+    mode: single
+    then:
+      - if:
+          condition:
+            and:
+              - wifi.connected:
+              - lambda: 'return assistant::readyToPoll();'
+          then:
+            - http_request.get:
+                url: !lambda 'return assistant::pollUrl();'
+                capture_response: true
+                max_response_buffer_size: 8kB
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code == 200) assistant::onPollBody(body);
+  - id: send_family
+    mode: queued
+    parameters:
+      msg: string
+      sticker: int
+    then:
+      - if:
+          condition:
+            and:
+              - wifi.connected:
+              - lambda: 'return !assistant::cfg.familyTopic.empty();'
+          then:
+            - http_request.post:
+                url: !lambda 'return assistant::serverBase() + "/";'
+                request_headers:
+                  Content-Type: application/json
+                body: !lambda 'return assistant::familyBody(msg, sticker);'
+
+interval:
+  - interval: 10s
+    then:
+      - script.execute: poll_ntfy
+  - interval: 2s
+    then:
+      - lambda: |-
+          // dim at night; brighter while a message is showing
+          static float last = -1;
+          float want = assistant::brightnessFactor();
+          if (want != last) {
+            last = want;
+            auto call = id(backlight).turn_on();
+            call.set_brightness(want);
+            call.perform();
+          }

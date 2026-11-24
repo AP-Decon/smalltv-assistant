@@ -1,6 +1,14 @@
 #pragma once
+#if __has_include(<Arduino.h>)
 #include <Arduino.h>
+#else
+#include "c2_shim.h"  // ESP32-C2 (ESPHome) build
+#endif
+#if __has_include(<TFT_eSPI.h>)
 #include <TFT_eSPI.h>
+#else
+#include "c2_shim.h"  // ESP32-C2 (ESPHome) build
+#endif
 #include <vector>
 
 // The display fonts only contain printable ASCII, so fold UTF-8 text

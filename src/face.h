@@ -1,6 +1,10 @@
 #pragma once
 // Animated robot-eyes face, drawn into a 4-bit 240x104 sprite.
+#if __has_include(<TFT_eSPI.h>)
 #include <TFT_eSPI.h>
+#else
+#include "c2_shim.h"  // ESP32-C2 (ESPHome) build
+#endif
 #include <algorithm>
 #include "common.h"
 

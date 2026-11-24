@@ -1,5 +1,9 @@
 #pragma once
+#if __has_include(<Arduino.h>)
 #include <Arduino.h>
+#else
+#include "c2_shim.h"  // ESP32-C2 (ESPHome) build
+#endif
 
 // ---- Styles -----------------------------------------------------------
 enum Style : uint8_t { STYLE_FACE = 0, STYLE_MASCOT = 1, STYLE_CARDS = 2, STYLE_COUNT = 3 };

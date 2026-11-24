@@ -1,6 +1,10 @@
 #pragma once
 // "Bit" - a 16x16 pixel-art robot, scaled up and drawn into the 4-bit sprite.
+#if __has_include(<TFT_eSPI.h>)
 #include <TFT_eSPI.h>
+#else
+#include "c2_shim.h"  // ESP32-C2 (ESPHome) build
+#endif
 #include "common.h"
 #include "face.h"
 

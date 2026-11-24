@@ -42,7 +42,7 @@ Either way, if you have a USB‑serial adapter, a full backup is the safest move
 1. With the stock firmware running, open the IP address shown on the cube in your phone's browser.
 2. Find the firmware update section, choose `smalltv-assistant.bin` and upload it. The cube reboots. On the SDPro clone, the upload button is in the settings and posts to `/update_ota`. On GeekMagic it's on the Update page.
 3. The cube shows **"Wi‑Fi setup: join SmallTV-Assistant"**. Connect your phone to that network, and a setup page opens (if it doesn't, go to `192.168.4.1`). Pick your home Wi‑Fi and enter the password.
-4. The cube shows **Ready!** with its IP address. From now on you can update firmware at `http://<ip>/update`, so there's no need to go back to the stock firmware.
+4. The cube shows **Ready!** with its IP address. From now on you can update firmware at `http://<ip>/update`, so there's no need to go back to the stock firmware. **Upload the `.bin.gz` file there, not the `.bin`.** The cube has only about 1 MB for the running firmware plus the new one, and the compressed file fits where the full one doesn't ("ERROR[4]: Not Enough Space").
 
 ## 4. First‑time setup
 
@@ -147,6 +147,26 @@ Other endpoints: `GET /api/state`, `POST /api/config` (JSON), `/api/style?s=next
 - **Clock wrong:** set the time zone. It takes POSIX format; UK is `GMT0BST,M3.5.0/1,M10.5.0`.
 - **Low memory message:** animations are turned off, but the Cards style still works.
 
+## 10. The ESP32-C2 ("SDC2") cube
+
+Newer versions of the clock have a different chip, an ESP32‑C2, and their update page asks for files starting with `SDC2`. They need their own build, which lives in the `c2/` folder. It's built with ESPHome and reuses the same face, mascot, sticker and family‑chat code. GitHub builds it alongside the normal firmware, so each release also contains:
+
+- `SDC2_Assistant.bin`: for the stock clock's update page, and for later updates.
+- `SDC2_Assistant_full_usb.bin`: a complete image, only for flashing over USB or serial.
+
+**Status: experimental.** The pins come from the community thread for this board (ESP8684 + ST7789V), but this build has not been run on a real cube yet.
+
+**Before you flash:**
+1. Plug the cube into a computer with a *data* USB‑C cable. If a new serial/COM port appears, you can back it up and recover it over USB. Use the web tool at <https://espressif.github.io/esptool-js/>: Connect, then read the full 4 MB flash to a file and keep it.
+2. If no port appears, get a USB‑serial adapter (CP2102 or CH340, 3.3 V) before trying. A bad flash would need it.
+
+**Install:** on the cube's stock page, use *Firmware Update* with `SDC2_Assistant.bin`. Then:
+1. The cube restarts and opens a `SmallTV-Assistant` Wi‑Fi network. Join it and choose your home Wi‑Fi.
+2. Open the cube's IP address in a browser. You get a settings page with Style, Cube name, Family code, My notification topic, a Send to family box and sticker buttons.
+3. Future updates: use the OTA upload at the bottom of the same page with the newest `SDC2_Assistant.bin`.
+
+**Differences from the ESP8266 cubes:** new messages are checked every 10 seconds rather than arriving instantly. Night dimming runs 23:00–07:00, and the eye colour is fixed.
+
 ## Project layout
 
 ```
@@ -159,4 +179,5 @@ src/textutil.h        UTF-8 -> ASCII, word wrap
 src/webpage.h         settings page
 bridge/               AI bridge script (Groq or Claude)
 docs/chat.html        family chat page for phones (GitHub Pages)
+c2/                   ESP32-C2 (SDC2) version, built with ESPHome
 ```

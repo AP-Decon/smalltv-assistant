@@ -1,7 +1,11 @@
 #pragma once
 // Animated pixel "stickers" for the family chat, drawn into the 4-bit 240x104
 // sprite. A message that contains one of the emoji below shows its sticker.
+#if __has_include(<TFT_eSPI.h>)
 #include <TFT_eSPI.h>
+#else
+#include "c2_shim.h"  // ESP32-C2 (ESPHome) build
+#endif
 #include <math.h>
 #include "common.h"
 #include "face.h"
