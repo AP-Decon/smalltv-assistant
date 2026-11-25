@@ -27,7 +27,7 @@ struct Settings {
   std::string name = "Cube";
   std::string familyTopic;
   std::string topic;
-  std::string server = "https://ntfy.sh";
+  std::string server = "http://ntfy.sh";
   int showSecs = 20;
   int nightStart = 23, nightEnd = 7;
 };
@@ -174,7 +174,7 @@ inline void onPollBody(const std::string& body) {
 }
 
 inline std::string serverBase() {
-  std::string s = cfg.server.empty() ? "https://ntfy.sh" : cfg.server;
+  std::string s = cfg.server.empty() ? "http://ntfy.sh" : cfg.server;
   while (!s.empty() && s.back() == '/') s.pop_back();
   if (s.rfind("http", 0) != 0) s = "https://" + s;
   return s;
