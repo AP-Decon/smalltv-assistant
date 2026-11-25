@@ -16,6 +16,7 @@ esphome:
     - ../src/mascot.h
     - ../src/stickers.h
     - c2_assistant.h
+    - c2_dump.h
   on_boot:
     priority: -100
     then:
@@ -35,6 +36,7 @@ esphome:
           auto idx = id(s_style).active_index();
           assistant::cfg.style = idx.has_value() ? (int) idx.value() : 0;
           id(backlight_out).set_level(1.0f);
+          assistant::installDumpHandler();
 
 esp32:
   board: esp32-c2-devkitm-1
@@ -222,58 +224,8 @@ text:
             call.perform();
           }
 
-  - platform: template
-    name: "Pin test"
-    id: t_pin
-    mode: text
-    max_length: 40
-    optimistic: true
-    initial_value: ""
-    entity_category: diagnostic
-    on_value:
-      - lambda: |-
-          // "scan" = step through likely backlight pins; "7=1" / "7=0" = set one pin
-          if (x == "scan") { id(pin_scan).execute(); return; }
-          int p = -1, v = -1;
-          if (sscanf(x.c_str(), "%d=%d", &p, &v) == 2 && p >= 0 && p <= 20) {
-            gpio_reset_pin((gpio_num_t) p);
-            gpio_set_direction((gpio_num_t) p, GPIO_MODE_OUTPUT);
-            gpio_set_level((gpio_num_t) p, v ? 1 : 0);
-          }
-
 # ---- talking to ntfy ---------------------------------------------------------
 script:
-  - id: pin_scan
-    mode: single
-    then:
-      - repeat:
-          count: 10
-          then:
-            - lambda: |-
-                static const int PINS[] = {0, 2, 3, 7, 8, 9, 10, 19, 20, 18};
-                int p = PINS[iteration];
-                gpio_reset_pin((gpio_num_t) p);
-                gpio_set_direction((gpio_num_t) p, GPIO_MODE_OUTPUT);
-                gpio_set_level((gpio_num_t) p, 1);
-                auto c = id(t_pin).make_call();
-                c.set_value("GPIO" + std::to_string(p) + " HIGH");
-                c.perform();
-            - delay: 3s
-            - lambda: |-
-                static const int PINS[] = {0, 2, 3, 7, 8, 9, 10, 19, 20, 18};
-                int p = PINS[iteration];
-                gpio_set_level((gpio_num_t) p, 0);
-                auto c = id(t_pin).make_call();
-                c.set_value("GPIO" + std::to_string(p) + " LOW");
-                c.perform();
-            - delay: 3s
-            - lambda: |-
-                static const int PINS[] = {0, 2, 3, 7, 8, 9, 10, 19, 20, 18};
-                gpio_reset_pin((gpio_num_t) PINS[iteration]);
-      - lambda: |-
-          auto c = id(t_pin).make_call();
-          c.set_value("scan done");
-          c.perform();
   - id: poll_ntfy
     mode: single
     then:
