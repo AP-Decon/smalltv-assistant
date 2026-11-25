@@ -42,9 +42,18 @@ esp32:
     type: esp-idf
     sdkconfig_options:
       CONFIG_XTAL_FREQ_26: y
+      # --- keep the firmware small enough for the stock clock's ~1 MB update slot ---
+      CONFIG_COMPILER_OPTIMIZATION_SIZE: y
+      CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS: n      # ntfy is reached over plain http
+      CONFIG_ESP_ERR_TO_NAME_LOOKUP: n
+      CONFIG_LWIP_IPV6: n
 
 logger:
-  level: INFO
+  level: NONE
+  baud_rate: 0
+
+mdns:
+  disabled: true
 
 # No network is built in: on first start the cube opens a "SmallTV-Assistant"
 # Wi-Fi network with a setup page where you choose your home Wi-Fi.
@@ -61,7 +70,6 @@ web_server:
 
 ota:
   - platform: web_server
-  - platform: esphome
 
 time:
   - platform: sntp
@@ -190,7 +198,7 @@ text:
     max_length: 64
     optimistic: true
     restore_value: true
-    initial_value: "https://ntfy.sh"
+    initial_value: "http://ntfy.sh"
     entity_category: config
     on_value:
       - lambda: 'assistant::cfg.server = x; assistant::lastId.clear();'
