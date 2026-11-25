@@ -34,6 +34,9 @@ esphome:
           static const int SECS[] = {10, 20, 30, 60, 120};
           auto si = id(s_secs).active_index();
           assistant::cfg.showSecs = si.has_value() ? SECS[si.value()] : 20;
+          static const int MINS[] = {0, 15, 30, 60};
+          auto ki = id(s_keep).active_index();
+          assistant::cfg.keepMins = ki.has_value() ? MINS[ki.value()] : 60;
           auto idx = id(s_style).active_index();
           assistant::cfg.style = idx.has_value() ? (int) idx.value() : 0;
           id(backlight_out).set_level(1.0f);
@@ -177,6 +180,18 @@ select:
       - lambda: |-
           static const int SECS[] = {10, 20, 30, 60, 120};
           assistant::cfg.showSecs = SECS[i];
+  - platform: template
+    name: "Repeat last message"
+    id: s_keep
+    options: ["Off", "15 min", "30 min", "1 hour"]
+    initial_option: "1 hour"
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    on_value:
+      - lambda: |-
+          static const int MINS[] = {0, 15, 30, 60};
+          assistant::cfg.keepMins = MINS[i];
 
 text:
   - platform: template
