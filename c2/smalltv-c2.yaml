@@ -1,6 +1,7 @@
 # SmallTV Assistant for the ESP32-C2 ("SDC2") version of the smart weather clock.
 # Screen pins read from the original SDC2 V1.2.0 firmware:
 # SCLK GPIO1, MOSI GPIO2, DC GPIO0, RST GPIO3, no CS, backlight GPIO5 (active low), button GPIO18.
+# Family chat status: http://<cube address>/chat
 #
 # Build:   esphome compile c2/smalltv-c2.yaml
 # The first install goes through the stock clock's update page as SDC2_Assistant.bin.
@@ -242,7 +243,11 @@ script:
                 on_response:
                   then:
                     - lambda: |-
+                        assistant::diagPoll(response->status_code, body);
                         if (response->status_code == 200) assistant::onPollBody(body);
+                on_error:
+                  then:
+                    - lambda: 'assistant::diagPolls++; assistant::diagPollStatus = -1;'
   - id: send_family
     mode: queued
     parameters:
@@ -260,6 +265,12 @@ script:
                 request_headers:
                   Content-Type: application/json
                 body: !lambda 'return assistant::familyBody(msg, sticker);'
+                on_response:
+                  then:
+                    - lambda: 'assistant::diagSendStatus = response->status_code;'
+                on_error:
+                  then:
+                    - lambda: 'assistant::diagSendStatus = -1;'
 
 interval:
   - interval: 10s
