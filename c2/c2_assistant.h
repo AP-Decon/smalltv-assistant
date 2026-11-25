@@ -29,6 +29,7 @@ struct Settings {
   std::string topic;
   std::string server = "http://ntfy.sh";
   int showSecs = 20;
+  int keepMins = 60;   // keep bringing back the last message for this long (0 = off)
   int nightStart = 23, nightEnd = 7;
 };
 inline Settings cfg;
@@ -48,7 +49,7 @@ inline C2Screen screen = C2_IDLE;
 inline std::vector<Note> history;
 inline std::vector<Note> queue;
 inline Note current;
-inline uint32_t msgUntil = 0, alertUntil = 0;
+inline uint32_t msgUntil = 0, alertUntil = 0, msgStart = 0, recallAt = 0;
 inline FaceAnim anim;
 inline uint8_t idleMood = MOOD_NEUTRAL;
 inline uint32_t idleMoodUntil = 0;
@@ -84,6 +85,8 @@ inline void showNext() {
   queue.erase(queue.begin());
   screen = C2_MSG;
   msgUntil = esphome::millis() + (uint32_t)cfg.showSecs * 1000UL;
+  msgStart = esphome::millis();
+  recallAt = 0;
   alertUntil = esphome::millis() + 1400;
 }
 
@@ -114,6 +117,7 @@ inline void addNote(String title, String body, int mood, uint8_t sticker = STK_N
 
 inline void dismiss() {
   queue.clear();
+  recallAt = 0;
   screen = C2_IDLE;
 }
 
@@ -391,7 +395,18 @@ inline void render(Display& it, ESPTime now) {
   if (screen == C2_MSG && current.mood == MOOD_THINKING && !queue.empty()) msgUntil = t;
   if (screen == C2_MSG && (int32_t)(t - msgUntil) >= 0) {
     if (!queue.empty()) showNext();
-    else screen = C2_IDLE;
+    else {
+      screen = C2_IDLE;
+      // between clock/face screens, keep bringing the last message back for a while
+      recallAt = (cfg.keepMins > 0 && (uint32_t)(t - msgStart) < (uint32_t)cfg.keepMins * 60000UL) ? t + 20000 : 0;
+    }
+  }
+  if (screen == C2_IDLE && queue.empty() && recallAt && (int32_t)(t - recallAt) >= 0) {
+    recallAt = 0;
+    if ((uint32_t)(t - msgStart) < (uint32_t)cfg.keepMins * 60000UL) {
+      screen = C2_MSG;
+      msgUntil = t + 8000;
+    }
   }
   if (screen == C2_IDLE && !queue.empty()) showNext();
 
