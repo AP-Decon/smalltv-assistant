@@ -57,6 +57,7 @@ button.sec{background:#2a2f3a;color:var(--fg)}.row{display:flex;gap:8px}.row>*{f
 <div class="row"><div><label>Night from (hour)</label><input id="nightStart" type="number" min="0" max="23"></div>
 <div><label>until (hour)</label><input id="nightEnd" type="number" min="0" max="23"></div></div>
 <label>Show each message for (seconds)</label><input id="showSecs" type="number" min="3" max="600">
+<label>Repeat last message for (minutes, 0 = off)</label><input id="keepMins" type="number" min="0" max="240">
 <label>Eye colour</label><input id="eyeHex" type="color">
 <label>Time zone (POSIX)</label><input id="tz">
 <label><input type="checkbox" id="hour12">12-hour clock</label>
@@ -73,7 +74,7 @@ button.sec{background:#2a2f3a;color:var(--fg)}.row{display:flex;gap:8px}.row>*{f
 </main><div id="msg"></div>
 <script>
 const $=id=>document.getElementById(id);
-const F=['name','familyTopic','ntfyServer','ntfyPort','ntfyTopic','ntfyToken','brightness','nightBrightness','nightStart','nightEnd','showSecs','eyeHex','tz'];
+const F=['name','familyTopic','ntfyServer','ntfyPort','ntfyTopic','ntfyToken','brightness','nightBrightness','nightStart','nightEnd','showSecs','keepMins','eyeHex','tz'];
 const B=['hour12','bgr','invert'];
 function toast(t){const m=$('msg');m.textContent=t;m.style.display='block';setTimeout(()=>m.style.display='none',1800)}
 async function api(u,m='GET',body){const r=await fetch(u,{method:m,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});toast(r.ok?'Done':'Error '+r.status);return r.ok?r.json().catch(()=>({})):{}}
