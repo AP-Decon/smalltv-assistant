@@ -1,23 +1,26 @@
 #pragma once
-// Read-only flash reader for the ESP32-C2 cube's web server.
-//   /parts                      -> JSON list of flash partitions (+ app name/version)
-//   /dump?p=<label>&off=N&len=M -> hex of M bytes (max 4096) from a partition
-// Used to recover the original SDC2 firmware from the spare update slot.
+// Small status page for the cube's web server:
+//   /chat  -> plain-text report of what the family chat / ntfy polling is doing
 #include <string>
-#include <cstdio>
 #include <cstring>
-#include "esp_partition.h"
-#include "esp_ota_ops.h"
 #include "esphome/components/web_server_base/web_server_base.h"
+#include "esphome/components/wifi/wifi_component.h"
 
 namespace assistant {
 
 using esphome::web_server_idf::AsyncWebServerRequest;
 
-inline std::string printableAt(const uint8_t* b, size_t n) {
-  std::string s;
-  for (size_t i = 0; i < n && b[i]; i++) s += (b[i] >= 32 && b[i] < 127) ? (char) b[i] : '?';
-  return s;
+// chat diagnostics, filled in by the poll/send scripts in smalltv-c2.yaml
+inline int diagPollStatus = 0, diagSendStatus = 0;
+inline uint32_t diagPolls = 0, diagMsgs = 0, diagBytes = 0;
+
+inline void diagPoll(int status, const std::string& body) {
+  diagPolls++;
+  diagPollStatus = status;
+  diagBytes = body.size();
+  for (size_t p = body.find("\"event\":\"message\""); p != std::string::npos;
+       p = body.find("\"event\":\"message\"", p + 1))
+    diagMsgs++;
 }
 
 // Request path check using the raw ESP-IDF request (uri includes any ?query)
@@ -27,71 +30,38 @@ inline bool isPath(AsyncWebServerRequest* r, const char* p) {
   return strncmp(uri, p, n) == 0 && (uri[n] == 0 || uri[n] == '?');
 }
 
+inline std::string hideCode(const std::string& s) {
+  // show only the start of codes so the page is safe to screenshot
+  return s.size() <= 6 ? s : s.substr(0, 6) + "..." + std::to_string(s.size()) + " chars";
+}
+
 class DumpHandler : public esphome::web_server_idf::AsyncWebHandler {
  public:
-  bool canHandle(AsyncWebServerRequest* request) const {
-    return isPath(request, "/parts") || isPath(request, "/dump");
-  }
+  bool canHandle(AsyncWebServerRequest* request) const { return isPath(request, "/chat"); }
   bool canHandle(AsyncWebServerRequest* request) {
     return static_cast<const DumpHandler*>(this)->canHandle(request);
   }
 
   void handleRequest(AsyncWebServerRequest* request) {
-    if (isPath(request, "/parts")) {
-      const esp_partition_t* running = esp_ota_get_running_partition();
-      std::string out = "[";
-      esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, nullptr);
-      bool first = true;
-      while (it) {
-        const esp_partition_t* p = esp_partition_get(it);
-        char buf[200];
-        snprintf(buf, sizeof(buf), "%s{\"label\":\"%s\",\"type\":%d,\"sub\":%d,\"addr\":%lu,\"size\":%lu,\"running\":%s",
-                 first ? "" : ",", p->label, (int) p->type, (int) p->subtype, (unsigned long) p->address,
-                 (unsigned long) p->size, p == running ? "true" : "false");
-        out += buf;
-        if (p->type == ESP_PARTITION_TYPE_APP) {
-          uint8_t hdr[256];
-          if (esp_partition_read(p, 0, hdr, sizeof(hdr)) == ESP_OK) {
-            // esp_app_desc_t follows the 24-byte image header + 8-byte segment header
-            const uint8_t* d = hdr + 32;
-            uint32_t magic;
-            memcpy(&magic, d, 4);
-            out += ",\"magic\":" + std::to_string((int) hdr[0]);
-            if (magic == 0xABCD5432) {
-              out += ",\"version\":\"" + printableAt(d + 16, 32) + "\"";
-              out += ",\"project\":\"" + printableAt(d + 48, 32) + "\"";
-            }
-          }
-        }
-        out += "}";
-        first = false;
-        it = esp_partition_next(it);
-      }
-      out += "]";
-      request->send(200, "application/json", out.c_str());
-      return;
-    }
-    // /dump
-    std::string label = request->arg("p");
-    long off = atol(request->arg("off").c_str());
-    long len = atol(request->arg("len").c_str());
-    if (len <= 0 || len > 4096) len = 4096;
-    const esp_partition_t* p = esp_partition_find_first(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, label.c_str());
-    if (!p || off < 0 || (unsigned long) off >= p->size) { request->send(404, "text/plain", "no such partition/offset"); return; }
-    if ((unsigned long) (off + len) > p->size) len = p->size - off;
-    static uint8_t buf[4096];
-    if (esp_partition_read(p, off, buf, len) != ESP_OK) { request->send(500, "text/plain", "read failed"); return; }
-    static char hex[8193];
-    static const char* H = "0123456789abcdef";
-    for (long i = 0; i < len; i++) { hex[2 * i] = H[buf[i] >> 4]; hex[2 * i + 1] = H[buf[i] & 15]; }
-    hex[2 * len] = 0;
-    request->send(200, "text/plain", hex);
+    std::string o;
+    o += "wifi connected: " + std::string(esphome::wifi::global_wifi_component->is_connected() ? "yes" : "NO") + "\n";
+    o += "clock set: " + std::string(nowEpoch ? "yes" : "NO (no internet time yet)") + "\n";
+    o += "cube name: " + cfg.name + "\n";
+    o += "family code: " + (cfg.familyTopic.empty() ? std::string("(empty)") : hideCode(cfg.familyTopic)) + "\n";
+    o += "own topic: " + (cfg.topic.empty() ? std::string("(empty)") : hideCode(cfg.topic)) + "\n";
+    o += "server: " + serverBase() + "\n";
+    o += "ready to check: " + std::string(readyToPoll() ? "yes" : "NO") + "\n";
+    o += "checks done: " + std::to_string(diagPolls) + "\n";
+    o += "last check result: " + std::to_string(diagPollStatus) + " (200 = good, -1 = could not connect)\n";
+    o += "last reply size: " + std::to_string(diagBytes) + " bytes\n";
+    o += "messages received: " + std::to_string(diagMsgs) + "\n";
+    o += "last send result: " + std::to_string(diagSendStatus) + "\n";
+    request->send(200, "text/plain", o.c_str());
   }
 };
 
 inline void installDumpHandler() {
-  if (esphome::web_server_base::global_web_server_base)
-    esphome::web_server_base::global_web_server_base->add_handler(new DumpHandler());
+  esphome::web_server_base::global_web_server_base->add_handler(new DumpHandler());
 }
 
 }  // namespace assistant
