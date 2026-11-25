@@ -58,7 +58,7 @@ Note current;
 enum Screen : uint8_t { SCR_IDLE, SCR_MSG, SCR_TEST };
 Screen screen = SCR_IDLE;
 bool needRedraw = true;
-uint32_t msgUntil = 0, alertUntil = 0, testUntil = 0, lastFrame = 0;
+uint32_t msgUntil = 0, alertUntil = 0, testUntil = 0, lastFrame = 0, msgStart = 0, recallAt = 0;
 int lastClockMinute = -1;
 int lastBrightness = -1;
 
@@ -88,6 +88,7 @@ void loadConfig() {
   cfg.nightStart = d["nightStart"] | cfg.nightStart;
   cfg.nightEnd = d["nightEnd"] | cfg.nightEnd;
   cfg.showSecs = d["showSecs"] | cfg.showSecs;
+  cfg.keepMins = d["keepMins"] | cfg.keepMins;
   cfg.ntfyServer = d["ntfyServer"] | cfg.ntfyServer.c_str();
   cfg.ntfyPort = d["ntfyPort"] | cfg.ntfyPort;
   cfg.ntfyTopic = d["ntfyTopic"] | cfg.ntfyTopic.c_str();
@@ -110,6 +111,7 @@ void saveConfig() {
   d["nightStart"] = cfg.nightStart;
   d["nightEnd"] = cfg.nightEnd;
   d["showSecs"] = cfg.showSecs;
+  d["keepMins"] = cfg.keepMins;
   d["ntfyServer"] = cfg.ntfyServer;
   d["ntfyPort"] = cfg.ntfyPort;
   d["ntfyTopic"] = cfg.ntfyTopic;
@@ -409,6 +411,8 @@ void showNext() {
   queue.erase(queue.begin());
   screen = SCR_MSG;
   msgUntil = millis() + (uint32_t)cfg.showSecs * 1000UL;
+  msgStart = millis();
+  recallAt = 0;
   alertUntil = millis() + 1400;
   needRedraw = true;
 }
@@ -442,6 +446,7 @@ void addNote(String title, String body, int mood, uint8_t sticker = STK_NONE, bo
 
 void dismiss() {
   queue.clear();
+  recallAt = 0;
   screen = SCR_IDLE;
   needRedraw = true;
 }
@@ -602,6 +607,7 @@ void sendState() {
   c["nightStart"] = cfg.nightStart;
   c["nightEnd"] = cfg.nightEnd;
   c["showSecs"] = cfg.showSecs;
+  c["keepMins"] = cfg.keepMins;
   c["ntfyServer"] = cfg.ntfyServer;
   c["ntfyPort"] = cfg.ntfyPort;
   c["ntfyTopic"] = cfg.ntfyTopic;
@@ -667,6 +673,7 @@ void handleConfig() {
   cfg.nightStart = num("nightStart", 0, 23, cfg.nightStart);
   cfg.nightEnd = num("nightEnd", 0, 23, cfg.nightEnd);
   cfg.showSecs = num("showSecs", 3, 600, cfg.showSecs);
+  cfg.keepMins = num("keepMins", 0, 240, cfg.keepMins);
   lastBrightness = -1;
 
   String s = str("ntfyServer", cfg.ntfyServer);
@@ -840,7 +847,20 @@ void render() {
   if (screen == SCR_MSG && current.mood == MOOD_THINKING && !queue.empty()) msgUntil = now;
   if (screen == SCR_MSG && (int32_t)(now - msgUntil) >= 0) {
     if (!queue.empty()) showNext();
-    else { screen = SCR_IDLE; needRedraw = true; }
+    else {
+      screen = SCR_IDLE;
+      needRedraw = true;
+      // between clock/face screens, keep bringing the last message back for a while
+      recallAt = (cfg.keepMins > 0 && (uint32_t)(now - msgStart) < (uint32_t)cfg.keepMins * 60000UL) ? now + 20000 : 0;
+    }
+  }
+  if (screen == SCR_IDLE && queue.empty() && recallAt && (int32_t)(now - recallAt) >= 0) {
+    recallAt = 0;
+    if ((uint32_t)(now - msgStart) < (uint32_t)cfg.keepMins * 60000UL) {
+      screen = SCR_MSG;
+      msgUntil = now + 8000;
+      needRedraw = true;
+    }
   }
   if (screen == SCR_IDLE && !queue.empty()) showNext();
 
