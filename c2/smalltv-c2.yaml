@@ -30,7 +30,9 @@ esphome:
           assistant::cfg.familyTopic = id(t_family).state;
           assistant::cfg.topic = id(t_topic).state;
           assistant::cfg.server = id(t_server).state;
-          assistant::cfg.showSecs = (int) id(n_secs).state;
+          static const int SECS[] = {10, 20, 30, 60, 120};
+          auto si = id(s_secs).active_index();
+          assistant::cfg.showSecs = si.has_value() ? SECS[si.value()] : 20;
           auto idx = id(s_style).active_index();
           assistant::cfg.style = idx.has_value() ? (int) idx.value() : 0;
 
@@ -47,6 +49,12 @@ esp32:
       CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS: n      # ntfy is reached over plain http
       CONFIG_ESP_ERR_TO_NAME_LOOKUP: n
       CONFIG_LWIP_IPV6: n
+      CONFIG_LOG_DEFAULT_LEVEL_NONE: y            # drop the system's built-in log messages
+      CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE: y
+      CONFIG_NEWLIB_NANO_FORMAT: y                # smaller printf (no decimals needed)
+      CONFIG_ESP_WIFI_ENABLE_WPA3_SAE: n          # WPA2 home Wi-Fi only
+      CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT: n
+      CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT: n
 
 logger:
   level: NONE
@@ -159,6 +167,18 @@ select:
     restore_value: true
     on_value:
       - lambda: 'assistant::cfg.style = (int) i;'
+  - platform: template
+    name: "Seconds per message"
+    id: s_secs
+    options: ["10", "20", "30", "60", "120"]
+    initial_option: "20"
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    on_value:
+      - lambda: |-
+          static const int SECS[] = {10, 20, 30, 60, 120};
+          assistant::cfg.showSecs = SECS[i];
 
 text:
   - platform: template
@@ -217,20 +237,6 @@ text:
             call.set_value("");
             call.perform();
           }
-
-number:
-  - platform: template
-    name: "Seconds per message"
-    id: n_secs
-    min_value: 3
-    max_value: 600
-    step: 1
-    initial_value: 20
-    optimistic: true
-    restore_value: true
-    entity_category: config
-    on_value:
-      - lambda: 'assistant::cfg.showSecs = (int) x;'
 
 button:
   - platform: template
