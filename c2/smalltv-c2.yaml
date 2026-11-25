@@ -1,6 +1,6 @@
 # SmallTV Assistant for the ESP32-C2 ("SDC2") version of the smart weather clock.
-# Hardware details from the Home Assistant community thread
-# "Installing ESPHome on new Smart Weather Clock" (ESP8684 + ST7789V).
+# Screen pins read from the original SDC2 V1.2.0 firmware:
+# SCLK GPIO1, MOSI GPIO2, DC GPIO0, RST GPIO3, no CS, backlight GPIO5 (active low), button GPIO18.
 #
 # Build:   esphome compile c2/smalltv-c2.yaml
 # The first install goes through the stock clock's update page as SDC2_Assistant.bin.
@@ -98,12 +98,12 @@ http_request:
 json:
 
 spi:
-  clk_pin: GPIO4
-  mosi_pin: GPIO6
+  clk_pin: GPIO1
+  mosi_pin: GPIO2
 
 output:
   - platform: ledc
-    pin: GPIO18
+    pin: GPIO5
     id: backlight_out
     frequency: 1000Hz
     inverted: true
@@ -130,8 +130,8 @@ display:
   - platform: mipi_spi
     id: lcd
     model: ST7789V
-    dc_pin: GPIO5
-    reset_pin: GPIO1
+    dc_pin: GPIO0
+    reset_pin: GPIO3
     dimensions:
       width: 240
       height: 240
