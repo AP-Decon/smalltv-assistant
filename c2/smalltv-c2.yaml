@@ -23,7 +23,7 @@ esphome:
           assistant::setup();
           assistant::fonts.small = id(f_small);
           assistant::fonts.text = id(f_text);
-          assistant::fonts.bold = id(f_bold);
+          assistant::fonts.bold = id(f_title);
           assistant::fonts.title = id(f_title);
           assistant::fonts.clock = id(f_clock);
           assistant::cfg.name = id(t_name).state;
@@ -35,6 +35,7 @@ esphome:
           assistant::cfg.showSecs = si.has_value() ? SECS[si.value()] : 20;
           auto idx = id(s_style).active_index();
           assistant::cfg.style = idx.has_value() ? (int) idx.value() : 0;
+          id(backlight_out).set_level(1.0f);
 
 esp32:
   board: esp32-c2-devkitm-1
@@ -55,6 +56,9 @@ esp32:
       CONFIG_ESP_WIFI_ENABLE_WPA3_SAE: n          # WPA2 home Wi-Fi only
       CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT: n
       CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT: n
+      CONFIG_ESP_WIFI_ENABLE_WPA3_OWE_STA: n
+      CONFIG_ESP_WIFI_MBEDTLS_CRYPTO: n           # Wi-Fi uses its own small crypto code
+      CONFIG_HAL_DEFAULT_ASSERTION_LEVEL: 0
 
 logger:
   level: NONE
@@ -101,26 +105,12 @@ output:
     frequency: 1000Hz
     inverted: true
 
-light:
-  - platform: monochromatic
-    name: "Backlight"
-    id: backlight
-    output: backlight_out
-    restore_mode: ALWAYS_ON
-    default_transition_length: 300ms
-
 font:
   - file: "gfonts://Roboto"
     id: f_small
     size: 14
   - file: "gfonts://Roboto"
     id: f_text
-    size: 17
-  - file:
-      type: gfonts
-      family: Roboto
-      weight: bold
-    id: f_bold
     size: 17
   - file:
       type: gfonts
@@ -167,6 +157,13 @@ select:
     restore_value: true
     on_value:
       - lambda: 'assistant::cfg.style = (int) i;'
+  - platform: template
+    name: "Brightness"
+    id: s_bright
+    options: ["100%", "70%", "40%", "20%"]
+    initial_option: "100%"
+    optimistic: true
+    restore_value: true
   - platform: template
     name: "Seconds per message"
     id: s_secs
@@ -281,9 +278,6 @@ button:
     name: "Dismiss"
     on_press:
       - lambda: 'assistant::dismiss();'
-  - platform: restart
-    name: "Restart"
-    entity_category: diagnostic
 
 # ---- talking to ntfy ---------------------------------------------------------
 script:
@@ -329,12 +323,12 @@ interval:
   - interval: 2s
     then:
       - lambda: |-
-          // dim at night; brighter while a message is showing
+          // user brightness, dimmer at night, brighter while a message is showing
+          static const float LEVELS[] = {1.0f, 0.7f, 0.4f, 0.2f};
           static float last = -1;
-          float want = assistant::brightnessFactor();
+          auto bi = id(s_bright).active_index();
+          float want = assistant::brightnessFactor() * LEVELS[bi.has_value() ? bi.value() : 0];
           if (want != last) {
             last = want;
-            auto call = id(backlight).turn_on();
-            call.set_brightness(want);
-            call.perform();
+            id(backlight_out).set_level(want);
           }
