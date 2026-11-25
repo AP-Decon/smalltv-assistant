@@ -86,6 +86,7 @@ struct Config {
   uint8_t nightBrightness = 15;  // %
   uint8_t nightStart = 23;       // hour, 24h
   uint8_t nightEnd = 7;          // hour, 24h
+  uint16_t keepMins = 60;        // keep bringing back the last message for this long (0 = off)
   uint16_t showSecs = 20;        // how long each notification stays up
   String ntfyServer = "ntfy.sh";
   uint16_t ntfyPort = 80;
