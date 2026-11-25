@@ -20,19 +20,24 @@ inline std::string printableAt(const uint8_t* b, size_t n) {
   return s;
 }
 
+// Request path check using the raw ESP-IDF request (uri includes any ?query)
+inline bool isPath(AsyncWebServerRequest* r, const char* p) {
+  const char* uri = static_cast<httpd_req_t*>(*r)->uri;
+  size_t n = strlen(p);
+  return strncmp(uri, p, n) == 0 && (uri[n] == 0 || uri[n] == '?');
+}
+
 class DumpHandler : public esphome::web_server_idf::AsyncWebHandler {
  public:
   bool canHandle(AsyncWebServerRequest* request) const {
-    std::string u(request->url().c_str());
-    return u == "/parts" || u == "/dump";
+    return isPath(request, "/parts") || isPath(request, "/dump");
   }
   bool canHandle(AsyncWebServerRequest* request) {
     return static_cast<const DumpHandler*>(this)->canHandle(request);
   }
 
   void handleRequest(AsyncWebServerRequest* request) {
-    std::string u(request->url().c_str());
-    if (u == "/parts") {
+    if (isPath(request, "/parts")) {
       const esp_partition_t* running = esp_ota_get_running_partition();
       std::string out = "[";
       esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, nullptr);
