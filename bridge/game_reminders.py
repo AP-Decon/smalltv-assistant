@@ -9,6 +9,8 @@ can be updated without touching the Pi) and posts to the family chat topic:
   * at tip-off                  "Tip-off! Good luck Mezz and the Rockets"
   * after the game              "How did Mezz get on? Tap the basketball ..."
 
+It also posts the day's Reading weather every morning at 07:00 (Open-Meteo, no key needed).
+
 Messages go out once each; what has been sent is remembered in a small state file.
 Only standard-library Python is used, so it runs on a Pi Zero W.
 
@@ -18,6 +20,8 @@ Settings (environment variables):
   GAMES_URL      default https://ap-decon.github.io/smalltv-assistant/games.json
   GAMES_FILE     local copy used when the URL can't be reached
   STATE_DIR      where to remember sent reminders (systemd sets this)
+  WEATHER_PLACE  default Reading (set WEATHER_HOUR=-1 to switch the weather off)
+  WEATHER_LAT / WEATHER_LON / WEATHER_HOUR
 """
 import json
 import os
@@ -38,6 +42,18 @@ EVE_HOUR = 19          # evening-before reminder at 19:00
 MORNING_HOUR = 8       # game-day reminder at 08:00 (or 3 h before an early game)
 AFTER_MINUTES = 110    # "how did it go?" this long after tip-off
 LATE_LIMIT = timedelta(hours=2)   # don't send a reminder more than 2 h late
+
+WEATHER_PLACE = os.environ.get("WEATHER_PLACE", "Reading")
+WEATHER_LAT = float(os.environ.get("WEATHER_LAT", "51.4543"))
+WEATHER_LON = float(os.environ.get("WEATHER_LON", "-0.9781"))
+WEATHER_HOUR = int(os.environ.get("WEATHER_HOUR", "7"))
+
+WMO = {0: "clear skies", 1: "mostly sunny", 2: "partly cloudy", 3: "cloudy", 45: "foggy", 48: "freezing fog",
+       51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 56: "freezing drizzle", 57: "freezing drizzle",
+       61: "light rain", 63: "rain", 65: "heavy rain", 66: "freezing rain", 67: "freezing rain",
+       71: "light snow", 73: "snow", 75: "heavy snow", 77: "snow grains",
+       80: "showers", 81: "heavy showers", 82: "violent showers", 85: "snow showers", 86: "heavy snow showers",
+       95: "thunderstorms", 96: "thunderstorms with hail", 99: "thunderstorms with hail"}
 
 
 def log(*a):
@@ -86,6 +102,34 @@ def post(title, message, sticker=None):
     with urllib.request.urlopen(req, timeout=20) as r:
         r.read()
     log("sent:", message)
+
+
+def weather_message():
+    url = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s"
+           "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max"
+           "&timezone=Europe%%2FLondon&forecast_days=1&wind_speed_unit=mph") % (WEATHER_LAT, WEATHER_LON)
+    with urllib.request.urlopen(url, timeout=20) as r:
+        d = json.loads(r.read().decode("utf-8"))["daily"]
+    code = int(d["weather_code"][0])
+    lo, hi = round(d["temperature_2m_min"][0]), round(d["temperature_2m_max"][0])
+    rain = d["precipitation_probability_max"][0] or 0
+    wind = round(d["wind_speed_10m_max"][0] or 0)
+    sky = WMO.get(code, "mixed weather")
+    msg = f"{WEATHER_PLACE} today: {sky}, {lo} to {hi}C, {rain}% chance of rain, wind {wind} mph."
+    tips = []
+    if code >= 71 and code <= 77 or code in (85, 86):
+        tips.append("Snow! Wrap up warm.")
+    elif rain >= 60:
+        tips.append("Take a coat or umbrella.")
+    if lo <= 0:
+        tips.append("Frosty start.")
+    if wind >= 30:
+        tips.append("Very windy.")
+    if hi >= 25:
+        tips.append("Hot one, take water.")
+    if tips:
+        msg += " " + " ".join(tips)
+    return msg
 
 
 def clock(dt):
@@ -149,6 +193,20 @@ def main():
         now = datetime.now(tz)
         player = data.get("player", "Mezz")
         team = data.get("team", "Rockets")
+        if WEATHER_HOUR >= 0:
+            wx_at = now.replace(hour=WEATHER_HOUR, minute=0, second=0, microsecond=0)
+            wx_key = now.strftime("wx-%Y%m%d")
+            if now >= wx_at and wx_key not in sent:
+                sent.add(wx_key)
+                save_state(sent)
+                if now - wx_at <= LATE_LIMIT:
+                    try:
+                        post("Weather", weather_message())
+                    except Exception as e:
+                        log("weather failed:", e)
+                        sent.discard(wx_key)
+                        save_state(sent)
+
         for g in data.get("games", []):
             try:
                 items, _ = reminders(g, player, team, tz)
@@ -172,6 +230,9 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--weather":
+        print(weather_message())
+        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "--list":
         d = json.load(open(sys.argv[2] if len(sys.argv) > 2 else GAMES_FILE))
         z = ZoneInfo(d.get("timezone", "Europe/London"))
