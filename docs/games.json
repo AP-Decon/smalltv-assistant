@@ -1,0 +1,92 @@
+{
+ "player": "Mezz",
+ "team": "Rockets",
+ "timezone": "Europe/London",
+ "source": "PlayHQ: Reading Rockets U14 Girls, Under 14 Girls - Southern Premier 2026/27 (copied by hand)",
+ "games": [
+  {
+   "start": "2026-11-29T12:30",
+   "opponent": "Kent Crusaders",
+   "home": false,
+   "venue": "Brompton Academy"
+  },
+  {
+   "start": "2026-12-05T16:45",
+   "opponent": "Essex Rebels",
+   "home": true,
+   "venue": "Hartland High School Sports Centre"
+  },
+  {
+   "start": "2026-12-06T15:15",
+   "opponent": "Kingston Lions",
+   "home": false,
+   "venue": "Raynes Park High School"
+  },
+  {
+   "start": "2026-12-12T11:00",
+   "opponent": "Milton Keynes Breakers",
+   "home": false,
+   "venue": "Bletchley Leisure Centre"
+  },
+  {
+   "start": "2026-12-19T12:45",
+   "opponent": "Richmond Knights",
+   "home": true,
+   "venue": "Hartland High School Sports Centre"
+  },
+  {
+   "start": "2027-01-10T13:00",
+   "opponent": "Barking RDF Eagles",
+   "home": false,
+   "venue": "Sydney Russell Leisure Centre"
+  },
+  {
+   "start": "2027-01-16T12:45",
+   "opponent": "Oaklands Wolves",
+   "home": true,
+   "venue": "Hartland High School Sports Centre"
+  },
+  {
+   "start": "2027-01-31T11:00",
+   "opponent": "Endeavour Ipswich Bobcats",
+   "home": false,
+   "venue": "Copleston Centre"
+  },
+  {
+   "start": "2027-02-06T12:45",
+   "opponent": "London Legends",
+   "home": true,
+   "venue": "Hartland High School Sports Centre"
+  },
+  {
+   "start": "2027-02-14T11:00",
+   "opponent": "Sussex Storm",
+   "home": false,
+   "venue": "Holy Trinity CofE School"
+  },
+  {
+   "start": "2027-02-27T14:45",
+   "opponent": "Solent Kestrels",
+   "home": true,
+   "venue": "Hartland High School Sports Centre"
+  },
+  {
+   "start": "2027-02-28T13:45",
+   "opponent": "Milton Keynes Breakers",
+   "home": true,
+   "venue": "Hartland High School Sports Centre"
+  },
+  {
+   "start": "2027-03-07T13:15",
+   "opponent": "Essex Rebels",
+   "home": false,
+   "venue": "Essex Sports Arena"
+  },
+  {
+   "start": "2027-03-14T15:45",
+   "opponent": "Kent Crusaders",
+   "home": true,
+   "venue": "Hartland High School Sports Centre"
+  }
+ ]
+}
