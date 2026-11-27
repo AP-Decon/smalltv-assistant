@@ -37,6 +37,14 @@ input{flex:1;min-width:0;font:inherit;padding:10px 12px;border-radius:10px;borde
 #setup input{width:100%}
 #setup small{color:var(--mut)}
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#2a2f3a;padding:8px 14px;border-radius:10px;display:none}
+#score{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;padding:20px}
+#score .box{background:var(--card);border-radius:14px;padding:18px;width:100%;max-width:360px}
+#score h3{margin:0 0 6px}
+#score .row{display:flex;gap:8px;align-items:center;margin:10px 0}
+#score .row span{flex:1;font-weight:600}
+#score input.n{flex:0 0 84px;text-align:center;font-size:22px}
+#score label{display:flex;gap:8px;align-items:center;color:var(--mut);font-size:14px}
+#score label input{flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -62,6 +70,14 @@ input{flex:1;min-width:0;font:inherit;padding:10px 12px;border-radius:10px;borde
   </details>
   <p><button type="button" id="s_save">Start chatting</button></p>
 </div>
+<div id="score"><div class="box">
+  <h3>&#127936; Send the score</h3>
+  <small style="color:var(--mut)">Shows on everyone's phone and on the cubes.</small>
+  <div class="row"><span id="sc_team">Rockets</span><input class="n" id="sc_us" type="number" inputmode="numeric" min="0" max="250" placeholder="0"></div>
+  <div class="row"><input id="sc_opp" placeholder="Other team"><input class="n" id="sc_them" type="number" inputmode="numeric" min="0" max="250" placeholder="0"></div>
+  <label><input type="checkbox" id="sc_live"> Game still going (half-time / live score)</label>
+  <p style="display:flex;gap:8px;margin-bottom:0"><button type="button" class="sec" id="sc_cancel">Cancel</button><button type="button" id="sc_send" style="flex:1">Send to everyone</button></p>
+</div></div>
 <div id="toast"></div>
 
 <script>
@@ -144,6 +160,53 @@ STICKERS.forEach(([name, emoji]) => {
   b.onclick = () => send(emoji, name);
   $("stickers").appendChild(b);
 });
+
+// ---- basketball score button ------------------------------------------------
+let GAMES = null;
+async function loadGames(){
+  if (GAMES) return GAMES;
+  try { GAMES = await fetch("games.json?t=" + Date.now()).then(r => r.json()); }
+  catch(e) { GAMES = { team: "Rockets", games: [] }; }
+  return GAMES;
+}
+function nearestGame(g){
+  // the game closest to "about an hour after tip-off" from now
+  const now = Date.now(); let best = null, bd = Infinity;
+  for (const x of (g.games || [])) {
+    const d = Math.abs(now - new Date(x.start).getTime() - 3600e3);
+    if (d < bd) { bd = d; best = x; }
+  }
+  return best;
+}
+async function openScore(){
+  const g = await loadGames();
+  const n = nearestGame(g);
+  $("sc_team").textContent = g.team || "Rockets";
+  $("sc_opp").value = n ? n.opponent : "";
+  $("sc_us").value = ""; $("sc_them").value = ""; $("sc_live").checked = false;
+  $("score").style.display = "flex";
+  setTimeout(() => $("sc_us").focus(), 50);
+}
+$("sc_cancel").onclick = () => $("score").style.display = "none";
+$("sc_send").onclick = () => {
+  const team = $("sc_team").textContent, opp = $("sc_opp").value.trim() || "them";
+  const a = $("sc_us").value, b = $("sc_them").value;
+  if (a === "" || b === "") { toast("Please fill in both scores"); return; }
+  const us = +a, them = +b;
+  let text, sticker;
+  if ($("sc_live").checked) { text = `Score update: ${team} ${us} - ${them} ${opp}`; sticker = "fire"; }
+  else if (us > them) { text = `Final: ${team} ${us} - ${them} ${opp}. WIN!`; sticker = "party"; }
+  else if (us < them) { text = `Final: ${team} ${us} - ${them} ${opp}. Lost, well played!`; sticker = "hug"; }
+  else { text = `Final: ${team} ${us} - ${them} ${opp}. Draw!`; sticker = "thumbsup"; }
+  send(text, sticker);
+  $("score").style.display = "none";
+};
+{
+  const bb = document.createElement("button");
+  bb.type = "button"; bb.textContent = "\u{1F3C0}"; bb.title = "Send a game score";
+  bb.onclick = openScore;
+  $("stickers").prepend(bb);
+}
 
 function newCode(){
   const a = "abcdefghjkmnpqrstuvwxyz23456789"; let c = "fam-";
